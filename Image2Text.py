@@ -359,11 +359,11 @@ class FasterDecoder(Image2Text):
         ids = self.decoding(enc_output, mem_seq_lens, trg_word=trg_word)
         return ids
 
-deit_encoder = DistilledVisionTransformer(patch_size=16, embed_dim=384, depth=8, num_heads=6, mlp_ratio=4,)      
-gpt_decoder = TransformerDecoder(d_model=384,n_head=6,dim_feedforward=1536,num_layers=6)
-model=Image2Text(deit_encoder,gpt_decoder,vocab_size=3000,max_length=256)
-gen = FasterDecoder(deit_encoder,gpt_decoder,vocab_size=3000,max_length=256,max_out_len=20,decoding_strategy="beam_search")
-src = paddle.rand((2,3,224,224))
-tgt = paddle.randint(shape=(2,20),low=1,high=3000)
+encoder = DistilledVisionTransformer(img_size=384,patch_size=16, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4,)      
+decoder = TransformerDecoder(d_model=256,n_head=8,dim_feedforward=1024,num_layers=6,ckdim=384,cvdim=384)
+model = Image2Text(encoder,decoder,vocab_size=64044,max_length=512)
+gen = FasterDecoder(encoder,decoder,vocab_size=64044,max_length=512,max_out_len=32,decoding_strategy="beam_search")
+src = paddle.rand((32,3,384,384))
+tgt = paddle.randint(shape=(32,32),low=1,high=64044)
 model(src,tgt)
 gen(src)
