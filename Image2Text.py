@@ -1,3 +1,9 @@
+#!/usr/bin/env python
+# coding: utf-8
+# Created on Fri Apr 1 09:36:49 2022
+# @author: Lu Jian
+# Email:janelu@live.cn; lujian@sdc.icbc.com.cn
+
 import paddle
 import paddle.nn as nn
 import paddle.nn.functional as F
