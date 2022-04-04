@@ -20,7 +20,7 @@ An image to text model base on transformer which can also be used on OCR task.
   ```
   
  ## Model说明
- 脚本`Image2Text.py`内包含了用于训练的Image2Text模型和用于快速推断的FastDecoder, 这时你可以从[paddlenlp](https://paddlenlp.readthedocs.io/zh/latest/model_zoo/transformers.html)的模型库中加载各种基于中文数据集的预训练transformer模型.
+ 脚本`Image2Text.py`基于paddlepaddle开发, 包含了用于训练的Image2Text模型和用于快速推断的FastDecoder, 这时你可以从[paddlenlp](https://paddlenlp.readthedocs.io/zh/latest/model_zoo/transformers.html)的模型库中加载各种基于中文数据集的预训练模型.
  当处理OCR任务时其等同于微软研究院基于Fairseq开源的[TrOCR](https://www.msra.cn/zh-cn/news/features/trocr). 
  
  *FasterTransformer会在**FastDecoder**第一次被调用时自动编译.*
