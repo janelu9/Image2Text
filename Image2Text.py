@@ -272,6 +272,9 @@ class TransformerDecoder(nn.Layer):
         return tensor.triu((paddle.zeros((length, length), dtype=paddle.get_default_dtype()) -float('inf')),1)
     
 class Image2Text(nn.Layer):
+    '''
+    for train
+    '''
     def __init__(self,img_encoder,txt_decoder,vocab_size,max_length,pad_id=1,eos_id=7,dropout=0):
         super(Image2Text, self).__init__()
         self.encoder = img_encoder
@@ -296,6 +299,9 @@ class Image2Text(nn.Layer):
         return predict
     
 class FasterDecoder(Image2Text):
+    '''
+    for infer
+    '''
     def __init__(self,img_encoder,txt_decoder,vocab_size,max_length,pad_id=1,eos_id=7,dropout=0,
                  decoding_strategy="beam_search",
                  beam_size=4,
