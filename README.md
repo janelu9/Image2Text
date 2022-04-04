@@ -1,4 +1,4 @@
-# Image2TextModel
+# Image2Text Model
 An image to text model base on transformer which can also be used on OCR task.
 
 在这里我们集成了 NVIDIA [FasterTransformer](https://github.com/NVIDIA/FasterTransformer/tree/v3.1) 用于预测加速。同时集成了 FasterTransformer float32 以及 float16 预测。以下是使用 FasterTransformer 的说明。
