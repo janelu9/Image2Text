@@ -269,7 +269,7 @@ class TransformerDecoder(nn.Layer):
         if self.norm is not None:
              output = self.norm(output)
             
-        return output if cache is None else (logit, new_caches)
+        return output if cache is None else (output, new_caches)
 
     def gen_cache(self, memory, do_zip=False):
         cache = [layer.gen_cache(memory) for layer in self.layers]
