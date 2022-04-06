@@ -375,4 +375,7 @@ model=Image2Text(encoder,decoder,vocab_size=64044,max_length=512)
 
 gen = FasterDecoder(encoder,decoder,vocab_size=64044,max_length=512,max_out_len=20)
 src = paddle.rand((1,3,224,224))
-tgt = paddle.randint(shape=(2,20),low=1,high=64044)
+pretgt = paddle.randint(shape=(2,20),low=1,high=64044)
+
+model(src,pretgt)
+gen(src)
