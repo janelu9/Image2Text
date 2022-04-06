@@ -294,12 +294,12 @@ class Image2Text(nn.Layer):
         self.dropout= nn.Dropout(dropout)
         self.project_out = nn.Linear(self.decoder.d_model, vocab_size)
 
-    def forward(self, img, pre_tgt,src_mask=None,tgt_mask=None, memory_mask=None):
+    def forward(self, img, tgt,src_mask=None,tgt_mask=None, memory_mask=None):
         with paddle.static.amp.fp16_guard():            
             memory = self.encoder(img)            
-            dec_input = self.dropout(self.word_embedding(pre_tgt) + \
-                                     self.pos_embedding(paddle.arange(pre_tgt.shape[1]).unsqueeze(0)))
-            tgt_mask= self.decoder._mask(pre_tgt.shape[1]) if tgt_mask is not None else None            
+            dec_input = self.dropout(self.word_embedding(tgt) + \
+                                     self.pos_embedding(paddle.arange(tgt.shape[1]).unsqueeze(0)))
+            tgt_mask= self.decoder._mask(tgt.shape[1]) if tgt_mask is not None else None            
             dec_output = self.decoder(dec_input,memory,tgt_mask=tgt_mask)
             predict = self.project_out(dec_output)
         return predict
@@ -374,8 +374,8 @@ decoder = TransformerDecoder(d_model=384,n_head=6,dim_feedforward=1024,num_layer
 model=Image2Text(encoder,decoder,vocab_size=64044,max_length=512)
 
 gen = FasterDecoder(encoder,decoder,vocab_size=64044,max_length=512,max_out_len=20)
-src = paddle.rand((1,3,224,224))
-pretgt = paddle.randint(shape=(2,20),low=1,high=64044)
+img = paddle.rand((1,3,224,224))
+tgt = paddle.randint(shape=(1,20),low=1,high=64044)
 
-model(src,pretgt)
-gen(src)
+model(img,tgt)
+gen(img)
