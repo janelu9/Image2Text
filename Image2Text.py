@@ -9,18 +9,15 @@ import paddle.nn as nn
 import paddle.nn.functional as F
 import paddle.tensor as tensor
 from vision_transformer import VisionTransformer, Identity, trunc_normal_, zeros_
+from swin_transformer import SwinTransformer
 from paddle.framework import ParamAttr
 from paddle.nn.layer.transformer import _convert_param_attr_to_list
 import collections
 from paddlenlp.ops import InferTransformerDecoding
 
 class DistilledVisionTransformer(VisionTransformer):
-    def __init__(self, img_size=224, patch_size=16, embed_dim=768, depth=12, class_num= 0,
-                 num_heads=12, mlp_ratio=4, qkv_bias=True, norm_layer='nn.LayerNorm', epsilon=1e-5,
-                 **kwargs):
-        super().__init__(img_size=img_size, patch_size=patch_size, embed_dim=embed_dim, depth=depth, class_num= class_num,
-                         num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, norm_layer=norm_layer, epsilon=epsilon,
-                         **kwargs)
+    def __init__(self,**kwargs):
+        super().__init__(class_num=0,**kwargs)
         self.pos_embed = self.create_parameter(
             shape=(1, self.patch_embed.num_patches + 2, self.embed_dim), default_initializer=zeros_)
         self.add_parameter("pos_embed", self.pos_embed)
@@ -46,12 +43,28 @@ class DistilledVisionTransformer(VisionTransformer):
             x = blk(x)
         x = self.norm(x)
         
-        return x,input_embedding
+        return x
     
     def forward(self, x):
-        x, input_embedding = self.forward_features(x)
-        return x, input_embedding
-        
+        x = self.forward_features(x)
+        return x
+
+class SwinTransformerEncoder(SwinTransformer):
+    def __init__(self,**kwargs):
+        super().__init__(class_num=0,**kwargs)
+    def forward_features(self, x):
+        x = self.patch_embed(x)
+        if self.ape:
+            x = x + self.absolute_pos_embed
+        x = self.pos_drop(x)
+        for layer in self.layers:
+            x = layer(x)
+        x = self.norm(x)  # B L C
+        return x
+    def forward(self,x):
+        x = self.forward_features(x)
+        return x
+    
 class PositionalEmbedding(nn.Layer):
     def __init__(self, emb_dim, max_length,learned = False):
         super(PositionalEmbedding, self).__init__()
@@ -92,14 +105,10 @@ class MultiHeadAttention(nn.Layer):
         self.need_weights = need_weights
         self.head_dim = embed_dim // num_heads
         assert self.head_dim * num_heads == self.embed_dim, "embed_dim must be divisible by num_heads"
-        self.q_proj = nn.Linear(
-            embed_dim, embed_dim, weight_attr, bias_attr=bias_attr)
-        self.k_proj = nn.Linear(
-            self.kdim, embed_dim, weight_attr, bias_attr=bias_attr)
-        self.v_proj = nn.Linear(
-            self.vdim, embed_dim, weight_attr, bias_attr=bias_attr)
-        self.out_proj = nn.Linear(
-            embed_dim, embed_dim, weight_attr, bias_attr=bias_attr)
+        self.q_proj = nn.Linear(embed_dim, embed_dim, weight_attr, bias_attr=bias_attr)
+        self.k_proj = nn.Linear(self.kdim, embed_dim, weight_attr, bias_attr=bias_attr)
+        self.v_proj = nn.Linear(self.vdim, embed_dim, weight_attr, bias_attr=bias_attr)
+        self.out_proj = nn.Linear(embed_dim, embed_dim, weight_attr, bias_attr=bias_attr)
 
     def _prepare_qkv(self, query, key, value, cache=None):
         q = self.q_proj(query)
@@ -272,9 +281,6 @@ class TransformerDecoder(nn.Layer):
         return tensor.triu((paddle.zeros((length, length), dtype=paddle.get_default_dtype()) -float('inf')),1)
     
 class Image2Text(nn.Layer):
-    '''
-    for train
-    '''
     def __init__(self,img_encoder,txt_decoder,vocab_size,max_length,pad_id=1,eos_id=7,dropout=0):
         super(Image2Text, self).__init__()
         self.encoder = img_encoder
@@ -290,7 +296,7 @@ class Image2Text(nn.Layer):
 
     def forward(self, img, pre_tgt,src_mask=None,tgt_mask=None, memory_mask=None):
         with paddle.static.amp.fp16_guard():            
-            memory , _ = self.encoder(img)            
+            memory = self.encoder(img)            
             dec_input = self.dropout(self.word_embedding(pre_tgt) + \
                                      self.pos_embedding(paddle.arange(pre_tgt.shape[1]).unsqueeze(0)))
             tgt_mask= self.decoder._mask(pre_tgt.shape[1]) if tgt_mask is not None else None            
@@ -299,9 +305,6 @@ class Image2Text(nn.Layer):
         return predict
     
 class FasterDecoder(Image2Text):
-    '''
-    for infer
-    '''
     def __init__(self,img_encoder,txt_decoder,vocab_size,max_length,pad_id=1,eos_id=7,dropout=0,
                  decoding_strategy="beam_search",
                  beam_size=4,
@@ -356,7 +359,7 @@ class FasterDecoder(Image2Text):
             alpha=self.alpha)
 
     def forward(self, img, trg_word=None):
-        enc_output,_ = self.encoder(img)
+        enc_output = self.encoder(img)
         if self.use_fp16_decoding and enc_output.dtype != paddle.float16:
             enc_output = paddle.cast(enc_output, dtype="float16")
         elif not self.use_fp16_decoding and enc_output.dtype != paddle.float32:
@@ -365,11 +368,11 @@ class FasterDecoder(Image2Text):
         ids = self.decoding(enc_output, mem_seq_lens, trg_word=trg_word)
         return ids
 
-encoder = DistilledVisionTransformer(img_size=384,patch_size=16, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4,)      
-decoder = TransformerDecoder(d_model=256,n_head=8,dim_feedforward=1024,num_layers=6,ckdim=384,cvdim=384)
-model = Image2Text(encoder,decoder,vocab_size=64044,max_length=512)
-gen = FasterDecoder(encoder,decoder,vocab_size=64044,max_length=512,max_out_len=32,decoding_strategy="beam_search")
-src = paddle.rand((32,3,384,384))
-tgt = paddle.randint(shape=(32,32),low=1,high=64044)
-model(src,tgt)
-gen(src)
+
+encoder = SwinTransformerEncoder(embed_dim=48,depths=[2, 2, 6, 2],num_heads=[3, 6, 12, 24],window_size=7,drop_path_rate=0.2)
+decoder = TransformerDecoder(d_model=384,n_head=6,dim_feedforward=1024,num_layers=6)
+model=Image2Text(encoder,decoder,vocab_size=64044,max_length=512)
+
+gen = FasterDecoder(encoder,decoder,vocab_size=64044,max_length=512,max_out_len=20)
+src = paddle.rand((1,3,224,224))
+tgt = paddle.randint(shape=(2,20),low=1,high=64044)
