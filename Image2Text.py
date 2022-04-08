@@ -299,18 +299,17 @@ class Image2Text(nn.Layer):
         self.dropout= nn.Dropout(dropout)
         self.project_out = project_out
 
-    def forward(self, img, tgt,src_mask=None,tgt_mask=None, memory_mask=None):
-        with paddle.static.amp.fp16_guard():            
-            memory = self.encoder(img)            
-            dec_input = self.dropout(self.word_embedding(tgt) + \
-                                     self.pos_embedding(paddle.arange(tgt.shape[1]).unsqueeze(0)))
-            tgt_mask= self.decoder._mask(tgt.shape[1]) if tgt_mask is not None else None            
-            dec_output = self.decoder(dec_input,memory,tgt_mask=tgt_mask)
-            predict = self.project_out(dec_output)
+    def forward(self, img, tgt,src_mask=None,tgt_mask=None, memory_mask=None):         
+        memory = self.encoder(img)            
+        dec_input = self.dropout(self.word_embedding(tgt) + \
+                                 self.pos_embedding(paddle.arange(tgt.shape[1]).unsqueeze(0)))
+        tgt_mask= self.decoder._mask(tgt.shape[1]) if tgt_mask is not None else None            
+        dec_output = self.decoder(dec_input,memory,tgt_mask=tgt_mask)
+        predict = self.project_out(dec_output)
         return predict
     
-class FasterDecoder(Image2Text):
-    def __init__(self,img_encoder,txt_decoder,word_emb,pos_emb,project_out,eos_id=7,dropout=0,
+class FasterTransformer(nn.Layer):
+    def __init__(self,model,
                  decoding_strategy="beam_search",
                  beam_size=4,
                  topk=4,
@@ -338,20 +337,20 @@ class FasterDecoder(Image2Text):
         self.use_fp16_encoder = args.pop("use_fp16_encoder")
         self.rel_len = args.pop("rel_len")
         self.alpha = args.pop("alpha")
-        super(FasterDecoder, self).__init__(**args)
+        super(FasterTransformer, self).__init__()
         
         #self.decoding_linear = nn.Linear(d_model, vocab_size)
         
         self.decoding = InferTransformerDecoding(
-            decoder=self.decoder,
-            word_embedding=self.word_embedding.word_embeddings,
-            positional_embedding=self.pos_embedding.position_embeddings,
-            linear=self.project_out,
-            num_decoder_layers=self.decoder.num_layers,
-            n_head=self.decoder.n_head,
-            d_model=self.decoder.d_model,
-            bos_id=self.bos_id,
-            eos_id=self.eos_id,
+            decoder=model.decoder,
+            word_embedding=model.word_embedding.word_embeddings,
+            positional_embedding=model.pos_embedding.position_embeddings,
+            linear=model.project_out,
+            num_decoder_layers=model.decoder.num_layers,
+            n_head=model.decoder.n_head,
+            d_model=model.decoder.d_model,
+            bos_id=model.bos_id,
+            eos_id=model.eos_id,
             decoding_strategy=decoding_strategy,
             beam_size=beam_size,
             topk=topk,
@@ -364,7 +363,7 @@ class FasterDecoder(Image2Text):
             alpha=self.alpha)
 
     def forward(self, img, trg_word=None):
-        enc_output = self.encoder(img)
+        enc_output = model.encoder(img)
         if self.use_fp16_decoding and enc_output.dtype != paddle.float16:
             enc_output = paddle.cast(enc_output, dtype="float16")
         elif not self.use_fp16_decoding and enc_output.dtype != paddle.float32:
@@ -379,13 +378,13 @@ class TransformerDecodeCell(nn.Layer):
                  word_embedding=None,
                  pos_embedding=None,
                  linear=None,
-                 dropout=0.1):
+                 dropout=None):
         super(TransformerDecodeCell, self).__init__()
         self.decoder = decoder
         self.word_embedding = word_embedding
         self.pos_embedding = pos_embedding
         self.linear = linear
-        self.dropout = dropout
+        self.dropout =dropout
 
     def forward(self, inputs, states, static_cache, trg_src_attn_bias, memory,
                 **kwargs):
@@ -415,8 +414,8 @@ class TransformerDecodeCell(nn.Layer):
 
         return cell_outputs, new_states
         
-class InferTransformerModel(Image2Text):
-    def __init__(self,img_encoder,txt_decoder,word_emb,pos_emb,project_out,eos_id=7,dropout=0,
+class InferTransformerModel(nn.Layer):
+    def __init__(self,model,
                  beam_size=4,
                  max_out_len=256,
                  output_time_major=False,
@@ -433,14 +432,16 @@ class InferTransformerModel(Image2Text):
         if self.beam_search_version == 'v2':
             self.alpha = kwargs.get("alpha", 0.6)
             self.rel_len = kwargs.get("rel_len", False)
-        super(InferTransformerModel, self).__init__(**args)
+        super(InferTransformerModel, self).__init__()
 
         cell = TransformerDecodeCell(
-            self.decoder, self.word_embedding,
-            self.pos_embedding, self.project_out, self.dropout)
+            model.decoder, model.word_embedding,
+            model.pos_embedding, model.project_out, model.dropout)
 
         self.decode = TransformerBeamSearchDecoder(
-            cell, self.bos_id, eos_id, beam_size, var_dim_in_state=2)
+            cell, model.bos_id, model.eos_id, beam_size, var_dim_in_state=2)
+            
+        self.model=model
 
     def forward(self, enc_input, trg_word=None):
     
@@ -453,10 +454,10 @@ class InferTransformerModel(Image2Text):
 
         if self.beam_search_version == 'v1':
 
-            enc_output = self.encoder(enc_input)
+            enc_output = self.model.encoder(enc_input)
 
             # Init states (caches) for transformer, need to be updated according to selected beam
-            incremental_cache, static_cache = self.decoder.gen_cache(
+            incremental_cache, static_cache = self.model.decoder.gen_cache(
                 enc_output, do_zip=True)
 
             static_cache, enc_output = TransformerBeamSearchDecoder.tile_beam_merge_with_batch(
@@ -507,7 +508,7 @@ class InferTransformerModel(Image2Text):
             return paddle.reshape(tensor,
                                   [shape[0] * shape[1]] + list(shape[2:]))
 
-        enc_output = self.encoder(enc_input)
+        enc_output = self.model.encoder(enc_input)
 
         # constant number
         inf = float(1. * 1e7)
@@ -524,7 +525,7 @@ class InferTransformerModel(Image2Text):
 
         alive_seq = paddle.tile(
             paddle.cast(
-                paddle.assign(np.array([[[self.bos_id]]])), "int64"),
+                paddle.assign(np.array([[[self.model.bos_id]]])), "int64"),
             [batch_size, beam_size, 1])
 
         ## init for the finished ##
@@ -535,7 +536,7 @@ class InferTransformerModel(Image2Text):
 
         finished_seq = paddle.tile(
             paddle.cast(
-                paddle.assign(np.array([[[self.bos_id]]])), "int64"),
+                paddle.assign(np.array([[[self.model.bos_id]]])), "int64"),
             [batch_size, beam_size, 1])
         finished_flags = paddle.zeros_like(finished_scores)
 
@@ -543,12 +544,12 @@ class InferTransformerModel(Image2Text):
         ## init inputs for decoder, shaped `[batch_size*beam_size, ...]`
         pre_word = paddle.reshape(alive_seq[:, :, -1],
                                   [batch_size * beam_size, 1])
-        trg_src_attn_bias = True
+        trg_src_attn_bias = None
 
         enc_output = merge_beam_dim(expand_to_beam_size(enc_output, beam_size))
 
         ## init states (caches) for transformer, need to be updated according to selected beam
-        caches = self.decoder.gen_cache(enc_output, do_zip=False)
+        caches = self.model.decoder.gen_cache(enc_output, do_zip=False)
 
         if trg_word is not None:
             scores_dtype = finished_scores.dtype
@@ -645,8 +646,8 @@ class InferTransformerModel(Image2Text):
 
             topk_log_probs = topk_scores * length_penalty
 
-            topk_beam_index = topk_ids // self.vocab_size
-            topk_ids = topk_ids % self.vocab_size
+            topk_beam_index = topk_ids // self.model.vocab_size
+            topk_ids = topk_ids % self.model.vocab_size
 
             topk_coordinates = get_topk_coordinates(
                 topk_beam_index,
@@ -666,7 +667,7 @@ class InferTransformerModel(Image2Text):
             eos = paddle.full(
                 shape=paddle.shape(topk_ids),
                 dtype=alive_seq.dtype,
-                fill_value=self.eos_id)
+                fill_value=self.model.eos_id)
             topk_finished = paddle.cast(paddle.equal(topk_ids, eos), "float32")
 
             # topk_seq: [batch_size, 2*beam_size, i+1]
@@ -700,7 +701,7 @@ class InferTransformerModel(Image2Text):
                     finished_seq, paddle.full(
                         shape=[batch_size, beam_size, 1],
                         dtype=finished_seq.dtype,
-                        fill_value=self.eos_id)
+                        fill_value=self.model.eos_id)
                 ],
                 axis=2)
             curr_scores += (1. - curr_finished) * -inf
@@ -747,14 +748,14 @@ class InferTransformerModel(Image2Text):
                 shape=paddle.shape(pre_word),
                 dtype=alive_seq.dtype,
                 fill_value=i)
-            trg_emb = self.word_embedding(pre_word)
-            trg_pos_emb = self.pos_embedding(trg_pos)
+            trg_emb = self.model.word_embedding(pre_word)
+            trg_pos_emb = self.model.pos_embedding(trg_pos)
             trg_emb = trg_emb + trg_pos_emb
-            dec_input = self.dropout(trg_emb)
+            dec_input = self.model.dropout(trg_emb)
 
-            logits, caches = self.decoder(
+            logits, caches = self.model.decoder(
                 dec_input, enc_output, None, trg_src_attn_bias, caches)
-            logits = self.project_out(logits)
+            logits = self.model.project_out(logits)
             topk_seq, topk_log_probs, topk_scores, topk_finished, states = grow_topk(
                 i, logits, alive_seq, alive_log_probs, caches)
             alive_seq, alive_log_probs, states = grow_alive(
@@ -807,8 +808,8 @@ project_out = nn.Linear(decoder.d_model, word_emb.vocab_size)
 
 model=Image2Text(encoder,decoder,word_emb,pos_emb,project_out)
 
-fast_infer = FasterDecoder(encoder,decoder,word_emb,pos_emb,project_out,max_out_len=20)
-infer = InferTransformerModel(encoder,decoder,word_emb,pos_emb,project_out,max_out_len=20)
+fast_infer = FasterTransformer(model,max_out_len=20)
+infer = InferTransformerModel(model,max_out_len=20)
 
 img = paddle.rand((1,3,224,224))
 tgt = paddle.randint(shape=(1,20),low=1,high=64044)
