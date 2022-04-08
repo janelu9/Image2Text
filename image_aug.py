@@ -59,3 +59,14 @@ class Resize:
         self.h=h
     def __call__(self,image):
         return image.resize((self.w,self.h))
+
+class Normalize:
+    def __init__(self, mean=0.5,std=0.5):
+        if not isinstance(mean,(tuple,list)):
+            mean=[mean]*3
+            std=[std]*3
+        self.mean=np.array(mean)[np.newaxis,np.newaxis,...]
+        self.std=np.array(std)[np.newaxis,np.newaxis,...]
+    def __call__(self,img_arr):
+        return (img_arr/255 - self.mean)/self.std
+    
