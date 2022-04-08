@@ -361,9 +361,9 @@ class FasterTransformer(nn.Layer):
             use_fp16_decoding=self.use_fp16_decoding,
             rel_len=self.rel_len,
             alpha=self.alpha)
-
+        self.encoder=model.encoder
     def forward(self, img, trg_word=None):
-        enc_output = model.encoder(img)
+        enc_output = self.encoder(img)
         if self.use_fp16_decoding and enc_output.dtype != paddle.float16:
             enc_output = paddle.cast(enc_output, dtype="float16")
         elif not self.use_fp16_decoding and enc_output.dtype != paddle.float32:
@@ -798,7 +798,6 @@ class InferTransformerModel(nn.Layer):
                     paddle.cast(
                         neg_finished_flags, dtype=alive_log_probs.dtype))
         return finished_seq, finished_scores
-    
 
 encoder = SwinTransformerEncoder(embed_dim=48,depths=[2, 2, 6, 2],num_heads=[3, 6, 12, 24],window_size=7,drop_path_rate=0.2)
 decoder = TransformerDecoder(d_model=384,n_head=6,dim_feedforward=1024,num_layers=6)
