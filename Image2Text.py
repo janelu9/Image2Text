@@ -14,6 +14,7 @@ from paddle.framework import ParamAttr
 from paddle.nn.layer.transformer import _convert_param_attr_to_list
 import collections
 from paddlenlp.ops import InferTransformerDecoding
+from paddlenlp.transformers import TransformerBeamSearchDecoder
 
 class DistilledVisionTransformer(VisionTransformer):
     def __init__(self,**kwargs):
@@ -69,6 +70,7 @@ class PositionalEmbedding(nn.Layer):
     def __init__(self, emb_dim, max_length,learned = False):
         super(PositionalEmbedding, self).__init__()
         self.emb_dim = emb_dim
+        self.max_length = max_length
         self.position_embeddings = nn.Embedding(num_embeddings=max_length,embedding_dim=self.emb_dim,
             weight_attr=paddle.ParamAttr(initializer=nn.initializer.Normal(0., emb_dim**-0.5)))
         if not learned:
@@ -87,10 +89,13 @@ class WordEmbedding(nn.Layer):
     def __init__(self, vocab_size, emb_dim, pad_id=0):
         super(WordEmbedding, self).__init__()
         self.emb_dim = emb_dim
+        self.vocab_size = vocab_size
+        self.pad_id = pad_id
         self.word_embeddings = nn.Embedding(num_embeddings=vocab_size,embedding_dim=emb_dim,padding_idx=pad_id,
             weight_attr=paddle.ParamAttr(initializer=nn.initializer.Normal(0., emb_dim**-0.5)))
     def forward(self, word):
         return self.emb_dim**0.5 * self.word_embeddings(word)
+ 
         
 class MultiHeadAttention(nn.Layer):
     Cache = collections.namedtuple("Cache", ["k", "v"])
@@ -281,18 +286,18 @@ class TransformerDecoder(nn.Layer):
         return tensor.triu((paddle.zeros((length, length), dtype=paddle.get_default_dtype()) -float('inf')),1)
     
 class Image2Text(nn.Layer):
-    def __init__(self,img_encoder,txt_decoder,vocab_size,max_length,pad_id=1,eos_id=7,dropout=0):
+    def __init__(self,img_encoder,txt_decoder,word_emb,pos_emb,project_out,eos_id=7,dropout=0):
         super(Image2Text, self).__init__()
         self.encoder = img_encoder
         self.decoder = txt_decoder
-        self.vocab_size = vocab_size
-        self.bos_id = pad_id
+        self.vocab_size = word_emb.vocab_size
+        self.bos_id = word_emb.pad_id
         self.eos_id = eos_id
-        self.max_length = max_length
-        self.word_embedding = WordEmbedding(vocab_size,self.decoder.d_model,pad_id)
-        self.pos_embedding = PositionalEmbedding(self.decoder.d_model,max_length)
+        self.max_length = pos_emb.max_length
+        self.word_embedding = word_emb
+        self.pos_embedding = pos_emb
         self.dropout= nn.Dropout(dropout)
-        self.project_out = nn.Linear(self.decoder.d_model, vocab_size)
+        self.project_out = project_out
 
     def forward(self, img, tgt,src_mask=None,tgt_mask=None, memory_mask=None):
         with paddle.static.amp.fp16_guard():            
@@ -305,7 +310,7 @@ class Image2Text(nn.Layer):
         return predict
     
 class FasterDecoder(Image2Text):
-    def __init__(self,img_encoder,txt_decoder,vocab_size,max_length,pad_id=1,eos_id=7,dropout=0,
+    def __init__(self,img_encoder,txt_decoder,word_emb,pos_emb,project_out,eos_id=7,dropout=0,
                  decoding_strategy="beam_search",
                  beam_size=4,
                  topk=4,
@@ -368,14 +373,452 @@ class FasterDecoder(Image2Text):
         ids = self.decoding(enc_output, mem_seq_lens, trg_word=trg_word)
         return ids
 
+class TransformerDecodeCell(nn.Layer):
+    def __init__(self,
+                 decoder,
+                 word_embedding=None,
+                 pos_embedding=None,
+                 linear=None,
+                 dropout=0.1):
+        super(TransformerDecodeCell, self).__init__()
+        self.decoder = decoder
+        self.word_embedding = word_embedding
+        self.pos_embedding = pos_embedding
+        self.linear = linear
+        self.dropout = dropout
+
+    def forward(self, inputs, states, static_cache, trg_src_attn_bias, memory,
+                **kwargs):
+  
+        if states and static_cache:
+            states = list(zip(states, static_cache))
+
+        if self.word_embedding:
+            if not isinstance(inputs, (list, tuple)):
+                inputs = (inputs)
+
+            word_emb = self.word_embedding(inputs[0])
+            pos_emb = self.pos_embedding(inputs[1])
+            word_emb = word_emb + pos_emb
+            inputs = self.dropout(word_emb)
+
+            cell_outputs, new_states = self.decoder(inputs, memory, None,
+                                                    trg_src_attn_bias, states)
+        else:
+            cell_outputs, new_states = self.decoder(inputs, memory, None,
+                                                    trg_src_attn_bias, states)
+
+        if self.linear:
+            cell_outputs = self.linear(cell_outputs)
+
+        new_states = [cache[0] for cache in new_states]
+
+        return cell_outputs, new_states
+        
+class InferTransformerModel(Image2Text):
+    def __init__(self,img_encoder,txt_decoder,word_emb,pos_emb,project_out,eos_id=7,dropout=0,
+                 beam_size=4,
+                 max_out_len=256,
+                 output_time_major=False,
+                 beam_search_version='v1',
+                 **kwargs):
+        args = dict(locals())
+        args.pop("self")
+        args.pop("__class__", None)
+        self.beam_size = args.pop("beam_size")
+        self.max_out_len = args.pop("max_out_len")
+        self.output_time_major = args.pop("output_time_major")
+        self.beam_search_version = args.pop('beam_search_version')
+        kwargs = args.pop("kwargs")
+        if self.beam_search_version == 'v2':
+            self.alpha = kwargs.get("alpha", 0.6)
+            self.rel_len = kwargs.get("rel_len", False)
+        super(InferTransformerModel, self).__init__(**args)
+
+        cell = TransformerDecodeCell(
+            self.decoder, self.word_embedding,
+            self.pos_embedding, self.project_out, self.dropout)
+
+        self.decode = TransformerBeamSearchDecoder(
+            cell, self.bos_id, eos_id, beam_size, var_dim_in_state=2)
+
+    def forward(self, enc_input, trg_word=None):
+    
+        if trg_word is not None:
+            trg_length = paddle.sum(paddle.cast(
+                trg_word != self.bos_id, dtype="int32"),
+                                    axis=-1)
+        else:
+            trg_length = None
+
+        if self.beam_search_version == 'v1':
+
+            enc_output = self.encoder(enc_input)
+
+            # Init states (caches) for transformer, need to be updated according to selected beam
+            incremental_cache, static_cache = self.decoder.gen_cache(
+                enc_output, do_zip=True)
+
+            static_cache, enc_output = TransformerBeamSearchDecoder.tile_beam_merge_with_batch(
+                (static_cache, enc_output), self.beam_size)
+
+            rs, _ = nn.decode.dynamic_decode(
+                decoder=self.decode,
+                inits=incremental_cache,
+                max_step_num=self.max_out_len,
+                memory=enc_output,
+                trg_src_attn_bias=None,
+                static_cache=static_cache,
+                is_test=True,
+                output_time_major=self.output_time_major,
+                trg_word=trg_word,
+                trg_length=trg_length)
+
+            return rs
+
+        elif self.beam_search_version == 'v2':
+            finished_seq, finished_scores = self.beam_search_v2(
+                enc_input, self.beam_size, self.max_out_len, self.alpha,
+                trg_word, trg_length)
+            if self.output_time_major:
+                finished_seq = finished_seq.transpose([2, 0, 1])
+            else:
+                finished_seq = finished_seq.transpose([0, 2, 1])
+
+            return finished_seq,finished_scores
+
+    def beam_search_v2(self,
+                       enc_input,
+                       beam_size=4,
+                       max_len=None,
+                       alpha=0.6,
+                       trg_word=None,
+                       trg_length=None):
+
+
+        def expand_to_beam_size(tensor, beam_size):
+            tensor = paddle.unsqueeze(tensor, axis=1)
+            tile_dims = [1] * len(tensor.shape)
+            tile_dims[1] = beam_size
+            return paddle.tile(tensor, tile_dims)
+
+        def merge_beam_dim(tensor):
+            shape = tensor.shape
+            return paddle.reshape(tensor,
+                                  [shape[0] * shape[1]] + list(shape[2:]))
+
+        enc_output = self.encoder(enc_input)
+
+        # constant number
+        inf = float(1. * 1e7)
+        batch_size = enc_output.shape[0]
+        max_len = (enc_output.shape[1] + 20) if max_len is None else (
+            enc_output.shape[1] + max_len if self.rel_len else max_len)
+
+        ### initialize states of beam search ###
+        ## init for the alive ##
+        initial_log_probs = paddle.assign(
+            np.array(
+                [[0.] + [-inf] * (beam_size - 1)], dtype="float32"))
+        alive_log_probs = paddle.tile(initial_log_probs, [batch_size, 1])
+
+        alive_seq = paddle.tile(
+            paddle.cast(
+                paddle.assign(np.array([[[self.bos_id]]])), "int64"),
+            [batch_size, beam_size, 1])
+
+        ## init for the finished ##
+        finished_scores = paddle.assign(
+            np.array(
+                [[-inf] * beam_size], dtype="float32"))
+        finished_scores = paddle.tile(finished_scores, [batch_size, 1])
+
+        finished_seq = paddle.tile(
+            paddle.cast(
+                paddle.assign(np.array([[[self.bos_id]]])), "int64"),
+            [batch_size, beam_size, 1])
+        finished_flags = paddle.zeros_like(finished_scores)
+
+        ### initialize inputs and states of transformer decoder ###
+        ## init inputs for decoder, shaped `[batch_size*beam_size, ...]`
+        pre_word = paddle.reshape(alive_seq[:, :, -1],
+                                  [batch_size * beam_size, 1])
+        trg_src_attn_bias = True
+
+        enc_output = merge_beam_dim(expand_to_beam_size(enc_output, beam_size))
+
+        ## init states (caches) for transformer, need to be updated according to selected beam
+        caches = self.decoder.gen_cache(enc_output, do_zip=False)
+
+        if trg_word is not None:
+            scores_dtype = finished_scores.dtype
+            scores = paddle.ones(
+                shape=[batch_size, beam_size * 2], dtype=scores_dtype) * -1e4
+            scores = paddle.scatter(
+                scores.flatten(),
+                paddle.arange(
+                    0,
+                    batch_size * beam_size * 2,
+                    step=beam_size * 2,
+                    dtype=finished_seq.dtype),
+                paddle.zeros([batch_size]))
+            scores = paddle.reshape(scores, [batch_size, beam_size * 2])
+
+        def update_states(caches, topk_coordinates, beam_size, batch_size):
+            new_caches = []
+            for cache in caches:
+                k = gather_2d(
+                    cache[0].k,
+                    topk_coordinates,
+                    beam_size,
+                    batch_size,
+                    need_unmerge=True)
+                v = gather_2d(
+                    cache[0].v,
+                    topk_coordinates,
+                    beam_size,
+                    batch_size,
+                    need_unmerge=True)
+                new_caches.append((MultiHeadAttention.Cache(k, v), cache[1]))
+            return new_caches
+
+        def get_topk_coordinates(beam_idx, beam_size, batch_size,
+                                 dtype="int64"):
+            batch_pos = paddle.arange(
+                batch_size * beam_size, dtype=dtype) // beam_size
+            batch_pos = paddle.reshape(batch_pos, [batch_size, beam_size])
+            topk_coordinates = paddle.stack([batch_pos, beam_idx], axis=2)
+            return topk_coordinates
+
+        def gather_2d(tensor_nd,
+                      topk_coordinates,
+                      beam_size,
+                      batch_size,
+                      need_unmerge=False):
+
+            new_tensor_nd = paddle.reshape(
+                tensor_nd,
+                shape=[batch_size, beam_size] +
+                list(tensor_nd.shape[1:])) if need_unmerge else tensor_nd
+            topk_seq = paddle.gather_nd(new_tensor_nd, topk_coordinates)
+            return merge_beam_dim(topk_seq) if need_unmerge else topk_seq
+
+        def early_finish(alive_log_probs, finished_scores,
+                         finished_in_finished):
+            max_length_penalty = np.power(((5. + max_len) / 6.), alpha)
+            lower_bound_alive_scores = alive_log_probs[:,
+                                                       0] / max_length_penalty
+            lowest_score_of_fininshed_in_finished = paddle.min(
+                finished_scores * finished_in_finished, 1)
+            lowest_score_of_fininshed_in_finished += (
+                1. - paddle.max(finished_in_finished, 1)) * -inf
+            bound_is_met = paddle.all(
+                paddle.greater_than(lowest_score_of_fininshed_in_finished,
+                                    lower_bound_alive_scores))
+
+            return bound_is_met
+
+        def grow_topk(i, logits, alive_seq, alive_log_probs, states):
+            """
+            This function takes the current alive sequences, and grows them to topk
+            sequences where k = 2*beam.
+            """
+            logits = paddle.reshape(logits, [batch_size, beam_size, -1])
+            candidate_log_probs = paddle.log(F.softmax(logits, axis=2))
+            log_probs = paddle.add(candidate_log_probs,
+                                   alive_log_probs.unsqueeze(-1))
+
+            # Length penalty is given by = (5+len(decode)/6) ^ -\alpha. Pls refer to
+            # https://arxiv.org/abs/1609.08144.
+            length_penalty = paddle.pow((5.0 + i + 1.0) / 6.0, alpha)
+            curr_scores = log_probs / length_penalty
+            flat_curr_scores = paddle.reshape(curr_scores, [batch_size, -1])
+
+            topk_scores, topk_ids = paddle.topk(
+                flat_curr_scores, k=beam_size * 2)
+            if topk_ids.dtype != alive_seq.dtype:
+                topk_ids = paddle.cast(topk_ids, dtype=alive_seq.dtype)
+
+            if trg_word is not None:
+                topk_ids, topk_scores = force_decoding_v2(topk_ids, topk_scores,
+                                                          i)
+
+            topk_log_probs = topk_scores * length_penalty
+
+            topk_beam_index = topk_ids // self.vocab_size
+            topk_ids = topk_ids % self.vocab_size
+
+            topk_coordinates = get_topk_coordinates(
+                topk_beam_index,
+                beam_size * 2,
+                batch_size,
+                dtype=alive_seq.dtype)
+            topk_seq = gather_2d(alive_seq, topk_coordinates, beam_size,
+                                 batch_size)
+            topk_seq = paddle.concat(
+                [
+                    topk_seq, paddle.reshape(topk_ids,
+                                             list(topk_ids.shape[:]) + [1])
+                ],
+                axis=2)
+            states = update_states(states, topk_coordinates, beam_size,
+                                   batch_size)
+            eos = paddle.full(
+                shape=paddle.shape(topk_ids),
+                dtype=alive_seq.dtype,
+                fill_value=self.eos_id)
+            topk_finished = paddle.cast(paddle.equal(topk_ids, eos), "float32")
+
+            # topk_seq: [batch_size, 2*beam_size, i+1]
+            # topk_log_probs, topk_scores, topk_finished: [batch_size, 2*beam_size]
+            return topk_seq, topk_log_probs, topk_scores, topk_finished, states
+
+        def grow_alive(curr_seq, curr_scores, curr_log_probs, curr_finished,
+                       states):
+            curr_scores += curr_finished * -inf
+            _, topk_indexes = paddle.topk(curr_scores, k=beam_size)
+            if topk_indexes.dtype != curr_seq.dtype:
+                topk_indexes = paddle.cast(topk_indexes, dtype=curr_seq.dtype)
+
+            topk_coordinates = get_topk_coordinates(
+                topk_indexes, beam_size, batch_size, dtype=curr_seq.dtype)
+            alive_seq = gather_2d(curr_seq, topk_coordinates, beam_size,
+                                  batch_size)
+
+            alive_log_probs = gather_2d(curr_log_probs, topk_coordinates,
+                                        beam_size, batch_size)
+            states = update_states(states, topk_coordinates, beam_size * 2,
+                                   batch_size)
+
+            return alive_seq, alive_log_probs, states
+
+        def grow_finished(finished_seq, finished_scores, finished_flags,
+                          curr_seq, curr_scores, curr_finished):
+            # finished scores
+            finished_seq = paddle.concat(
+                [
+                    finished_seq, paddle.full(
+                        shape=[batch_size, beam_size, 1],
+                        dtype=finished_seq.dtype,
+                        fill_value=self.eos_id)
+                ],
+                axis=2)
+            curr_scores += (1. - curr_finished) * -inf
+            curr_finished_seq = paddle.concat([finished_seq, curr_seq], axis=1)
+            curr_finished_scores = paddle.concat(
+                [finished_scores, curr_scores], axis=1)
+            curr_finished_flags = paddle.concat(
+                [finished_flags, curr_finished], axis=1)
+            _, topk_indexes = paddle.topk(curr_finished_scores, k=beam_size)
+            if topk_indexes.dtype != curr_seq.dtype:
+                topk_indexes = paddle.cast(topk_indexes, dtype=curr_seq.dtype)
+
+            topk_coordinates = get_topk_coordinates(
+                topk_indexes, beam_size, batch_size, dtype=curr_seq.dtype)
+            finished_seq = gather_2d(curr_finished_seq, topk_coordinates,
+                                     beam_size, batch_size)
+            finished_scores = gather_2d(curr_finished_scores, topk_coordinates,
+                                        beam_size, batch_size)
+            finished_flags = gather_2d(curr_finished_flags, topk_coordinates,
+                                       beam_size, batch_size)
+
+            return finished_seq, finished_scores, finished_flags
+
+        def force_decoding_v2(topk_ids, topk_scores, time):
+            beam_size = topk_ids.shape[1]
+            if trg_word.shape[1] > time:
+                force_position = paddle.unsqueeze(trg_length > time, [1])
+                force_position.stop_gradient = True
+                force_position = paddle.tile(force_position, [1, beam_size])
+
+                crt_trg_word = paddle.slice(
+                    trg_word, axes=[1], starts=[time], ends=[time + 1])
+                crt_trg_word = paddle.tile(crt_trg_word, [1, beam_size])
+
+                topk_ids = paddle.where(force_position, crt_trg_word, topk_ids)
+
+                topk_scores = paddle.where(force_position, scores, topk_scores)
+
+            return topk_ids, topk_scores
+
+        def inner_loop(i, pre_word, alive_seq, alive_log_probs, finished_seq,
+                       finished_scores, finished_flags, caches):
+            trg_pos = paddle.full(
+                shape=paddle.shape(pre_word),
+                dtype=alive_seq.dtype,
+                fill_value=i)
+            trg_emb = self.word_embedding(pre_word)
+            trg_pos_emb = self.pos_embedding(trg_pos)
+            trg_emb = trg_emb + trg_pos_emb
+            dec_input = self.dropout(trg_emb)
+
+            logits, caches = self.decoder(
+                dec_input, enc_output, None, trg_src_attn_bias, caches)
+            logits = self.project_out(logits)
+            topk_seq, topk_log_probs, topk_scores, topk_finished, states = grow_topk(
+                i, logits, alive_seq, alive_log_probs, caches)
+            alive_seq, alive_log_probs, states = grow_alive(
+                topk_seq, topk_scores, topk_log_probs, topk_finished, states)
+            caches = states
+            finished_seq, finished_scores, finished_flags = grow_finished(
+                finished_seq, finished_scores, finished_flags, topk_seq,
+                topk_scores, topk_finished)
+            pre_word = paddle.reshape(alive_seq[:, :, -1],
+                                      [batch_size * beam_size, 1])
+            return (i + 1, pre_word, alive_seq, alive_log_probs, finished_seq,
+                    finished_scores, finished_flags, caches)
+
+        def is_not_finish(i, pre_word, alive_seq, alive_log_probs, finished_seq,
+                          finished_scores, finished_flags, caches):
+            return paddle.greater_than(
+                i < max_len,
+                early_finish(alive_log_probs, finished_scores, finished_flags))
+
+        _, pre_word, alive_seq, alive_log_probs, finished_seq, finished_scores, finished_flags, caches = paddle.static.nn.while_loop(
+            is_not_finish,
+            inner_loop, [
+                paddle.zeros(
+                    shape=[1],
+                    dtype="int64"), pre_word, alive_seq, alive_log_probs,
+                finished_seq, finished_scores, finished_flags, caches
+            ],
+            is_test=True
+        )
+        finished_flags = paddle.cast(finished_flags, dtype=finished_seq.dtype)
+        neg_finished_flags = 1 - finished_flags
+        finished_seq = paddle.multiply(
+            finished_seq, finished_flags.unsqueeze(-1)) + paddle.multiply(
+                alive_seq, neg_finished_flags.unsqueeze(-1))
+        finished_scores = paddle.multiply(
+            finished_scores,
+            paddle.cast(
+                finished_flags, dtype=finished_scores.dtype)) + paddle.multiply(
+                    alive_log_probs,
+                    paddle.cast(
+                        neg_finished_flags, dtype=alive_log_probs.dtype))
+        return finished_seq, finished_scores
+    
 
 encoder = SwinTransformerEncoder(embed_dim=48,depths=[2, 2, 6, 2],num_heads=[3, 6, 12, 24],window_size=7,drop_path_rate=0.2)
 decoder = TransformerDecoder(d_model=384,n_head=6,dim_feedforward=1024,num_layers=6)
-model=Image2Text(encoder,decoder,vocab_size=64044,max_length=512)
+word_emb = WordEmbedding(vocab_size=64044,emb_dim=decoder.d_model,pad_id=0)
+pos_emb = PositionalEmbedding(decoder.d_model,max_length=512)
+project_out = nn.Linear(decoder.d_model, word_emb.vocab_size)
 
-gen = FasterDecoder(encoder,decoder,vocab_size=64044,max_length=512,max_out_len=20)
+model=Image2Text(encoder,decoder,word_emb,pos_emb,project_out)
+
+fast_infer = FasterDecoder(encoder,decoder,word_emb,pos_emb,project_out,max_out_len=20)
+infer = InferTransformerModel(encoder,decoder,word_emb,pos_emb,project_out,max_out_len=20)
+
 img = paddle.rand((1,3,224,224))
 tgt = paddle.randint(shape=(1,20),low=1,high=64044)
 
 model(img,tgt)
-gen(img)
+
+fast_infer.eval()
+with paddle.no_grad():
+    out=fast_infer(img)
+    
+infer.eval()
+with paddle.no_grad():
+    out1=infer(img)
