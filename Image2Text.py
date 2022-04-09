@@ -339,7 +339,7 @@ class FasterTransformer(nn.Layer):
         self.alpha = args.pop("alpha")
         super(FasterTransformer, self).__init__()
         
-        #self.decoding_linear = nn.Linear(d_model, vocab_size)
+        self.encoder=model.encoder
         
         self.decoding = InferTransformerDecoding(
             decoder=model.decoder,
@@ -361,7 +361,21 @@ class FasterTransformer(nn.Layer):
             use_fp16_decoding=self.use_fp16_decoding,
             rel_len=self.rel_len,
             alpha=self.alpha)
-        self.encoder=model.encoder
+        
+        if self.decoding._fuse_qkv:
+            self._init_fuse_params(model.decoder.state_dict())
+            
+    def _init_fuse_params(self,decoder_state_dict):
+        fuse_param={}
+        for item in self.decoding.state_dict().keys():
+            _, param_type ,num_layer = item.rsplit("_",2)
+            fuse_param[item]= paddle.concat((decoder_state_dict["layers.%s.self_attn.q_proj.%s" % (num_layer,param_type)],
+                                             decoder_state_dict["layers.%s.self_attn.k_proj.%s" % (num_layer,param_type)],
+                                             decoder_state_dict["layers.%s.self_attn.v_proj.%s" % (num_layer,param_type)],
+                                             ),-1)
+        self.decoding.load_dict(fuse_param)
+                 
+            
     def forward(self, img, trg_word=None):
         enc_output = self.encoder(img)
         if self.use_fp16_decoding and enc_output.dtype != paddle.float16:
@@ -371,6 +385,7 @@ class FasterTransformer(nn.Layer):
         mem_seq_lens = paddle.ones([enc_output.shape[0]],paddle.int32)*enc_output.shape[1]
         ids = self.decoding(enc_output, mem_seq_lens, trg_word=trg_word)
         return ids
+
 
 class TransformerDecodeCell(nn.Layer):
     def __init__(self,
