@@ -2,12 +2,15 @@ from PIL import Image, ImageFilter
 import numpy as np
 from numpy.random import uniform,random
 
+
+np.random.seed(2022)
 class RandomPad:
-    def __init__(self,LR=6,UL=15,w=0.5):
+    def __init__(self,LR=20,UL=20,w=0.5):
         self.LR=LR
         self.UL=UL
         self.w=w
-    def __call__(self,img_arr):
+    def __call__(self,img):
+        img_arr = np.array(img)
         if random()>self.w:
             upper= img_arr[:1,:,:]
             img_arr = np.concatenate([np.tile(upper,(int(uniform()*self.UL),1,1)),img_arr],0)
@@ -20,7 +23,7 @@ class RandomPad:
         if random()>self.w:
             right = img_arr[:,-1:,:]
             img_arr = np.concatenate([img_arr,np.tile(right,(1,int(uniform()*self.LR),1))],1)
-        return img_arr
+        return  Image.fromarray(img_arr)
 
 class GaussianBlur:
     def __init__(self, p=2.5):
@@ -62,3 +65,30 @@ class Normalize:
         self.std=np.array(std)[np.newaxis,np.newaxis,...]
     def __call__(self,img_arr):
         return (img_arr/255 - self.mean)/self.std
+    
+class image_process:
+    def __init__(self,train = True):
+        self.resize=Resize(384,384)
+        self.normalize=Normalize()
+        self.train = train
+        if self.train:
+            self.aug=(
+                (RandomPad(),0.5),
+                (GaussianBlur(),0.5),
+                (MinFilter(),0.3),
+                (MaxFilter(),0.5),
+                (Rotate(),0.5),
+            )
+    def infer_process(self,img):
+        img=self.resize(img)
+        img_arr = np.array(img)
+        return self.normalize(img_arr).transpose([2,0,1])
+
+    def train_process(self,img):
+        for f,w in self.aug:
+            if random()<w:
+                img=f(img)
+        return self.infer_process(img)
+    
+    def __call__(self,img):
+        return self.train_process(img) if self.train else self.infer_process(img)
