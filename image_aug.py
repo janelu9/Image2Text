@@ -9,11 +9,7 @@ import numpy as np
 from numpy.random import uniform,random
 
 np.random.seed(2022)
-from PIL import Image, ImageFilter
-import numpy as np
-from numpy.random import uniform,random
 
-np.random.seed(2022)
 class RandomPad:
     def __init__(self,LR=20,UL=20,w=0.5):
         self.LR=LR
