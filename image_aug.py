@@ -1,10 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Thu Apr  7 21:28:02 2022
-@author: Lu Jian
-Email:janelu@live.cn; lujian@sdc.icbc.com.cn
-"""
-
 from PIL import Image, ImageFilter
 import numpy as np
 from numpy.random import uniform,random
@@ -33,19 +26,19 @@ class GaussianBlur:
     def __init__(self, p=2.5):
         self.p = p
     def __call__(self, image):
-        return image.filter(ImageFilter.GaussianBlur(p=self.p))
+        return image.filter(ImageFilter.GaussianBlur(uniform()*self.p))
     
 class MinFilter:
     def __init__(self, p=3):
         self.p = p
     def __call__(self, image):
-        return image.filter(ImageFilter.MinFilter(p=self.p))
+        return image.filter(ImageFilter.MinFilter(self.p))
     
 class MaxFilter:
     def __init__(self, p=3):
         self.p = p
     def __call__(self, image):
-        return image.filter(ImageFilter.MaxFilter(p=self.p))
+        return image.filter(ImageFilter.MaxFilter(self.p))
     
 class Rotate:
     def __init__(self, p=6):
@@ -54,12 +47,12 @@ class Rotate:
         return image.rotate(uniform(-1,1)*self.p,fillcolor=(222,222,222))
     
 class Resize:
-    def __init__(self, w=224,h=224):
+    def __init__(self, w=384,h=384):
         self.w=w
         self.h=h
     def __call__(self,image):
         return image.resize((self.w,self.h))
-
+    
 class Normalize:
     def __init__(self, mean=0.5,std=0.5):
         if not isinstance(mean,(tuple,list)):
@@ -69,4 +62,3 @@ class Normalize:
         self.std=np.array(std)[np.newaxis,np.newaxis,...]
     def __call__(self,img_arr):
         return (img_arr/255 - self.mean)/self.std
-    
