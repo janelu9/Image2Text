@@ -814,26 +814,26 @@ class InferTransformerModel(nn.Layer):
                         neg_finished_flags, dtype=alive_log_probs.dtype))
         return finished_seq, finished_scores
 
-encoder = SwinTransformerEncoder(embed_dim=48,depths=[2, 2, 6, 2],num_heads=[3, 6, 12, 24],window_size=7,drop_path_rate=0.2)
-decoder = TransformerDecoder(d_model=384,n_head=6,dim_feedforward=1536,num_layers=6)
-word_emb = WordEmbedding(vocab_size=64044,emb_dim=decoder.d_model,pad_id=0)
-pos_emb = PositionalEmbedding(decoder.d_model,max_length=512)
-project_out = nn.Linear(decoder.d_model, word_emb.vocab_size)
+# encoder = SwinTransformerEncoder(embed_dim=48,depths=[2, 2, 6, 2],num_heads=[3, 6, 12, 24],window_size=7,drop_path_rate=0.2)
+# decoder = TransformerDecoder(d_model=384,n_head=6,dim_feedforward=1536,num_layers=6)
+# word_emb = WordEmbedding(vocab_size=64044,emb_dim=decoder.d_model,pad_id=0)
+# pos_emb = PositionalEmbedding(decoder.d_model,max_length=512)
+# project_out = nn.Linear(decoder.d_model, word_emb.vocab_size)
 
-model=Image2Text(encoder,decoder,word_emb,pos_emb,project_out)
+# model=Image2Text(encoder,decoder,word_emb,pos_emb,project_out)
 
-fast_infer = FasterTransformer(model,max_out_len=20)
-infer = InferTransformerModel(model,max_out_len=20)
+# fast_infer = FasterTransformer(model,max_out_len=20)
+# infer = InferTransformerModel(model,max_out_len=20)
 
-img = paddle.rand((1,3,224,224))
-tgt = paddle.randint(shape=(1,20),low=1,high=64044)
+# img = paddle.rand((1,3,224,224))
+# tgt = paddle.randint(shape=(1,20),low=1,high=64044)
 
-model(img,tgt)
+# model(img,tgt)
 
-fast_infer.eval()
-with paddle.no_grad():
-    out=fast_infer(img)
+# fast_infer.eval()
+# with paddle.no_grad():
+    # out=fast_infer(img)
     
-infer.eval()
-with paddle.no_grad():
-    out1=infer(img)
+# infer.eval()
+# with paddle.no_grad():
+    # out1=infer(img)
