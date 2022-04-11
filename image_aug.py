@@ -72,11 +72,11 @@ class Normalize:
         return (img_arr/255 - self.mean)/self.std
     
 class image_process:
-    def __init__(self,train = True):
+    def __init__(self,aug = True):
         self.resize=Resize(384,384)
         self.normalize=Normalize()
-        self.train = train
-        if self.train:
+        self.aug_flag = aug
+        if self.aug_flag:
             self.aug=(
                 (RandomPad(),0.8),
                 (GaussianBlur(),0.5),
@@ -89,11 +89,11 @@ class image_process:
         img_arr = np.array(img)
         return self.normalize(img_arr).transpose([2,0,1])
 
-    def train_process(self,img):
+    def aug_process(self,img):
         for f,w in self.aug:
             if random()<w:
                 img=f(img)
         return self.infer_process(img)
     
     def __call__(self,img):
-        return self.train_process(img) if self.train else self.infer_process(img)
+        return self.aug_process(img) if self.aug_flag else self.infer_process(img)
