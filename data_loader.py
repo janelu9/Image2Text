@@ -5,6 +5,7 @@
 # Email:janelu@live.cn; lujian@sdc.icbc.com.cn
 
 from paddle.io import Dataset
+from PIL import Image
 
 class SimpleDataSet(Dataset):
     def __init__(self,img_pths,label_lists,image_process,tokenizer):
