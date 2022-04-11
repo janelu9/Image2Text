@@ -1,7 +1,12 @@
+#!/usr/bin/env python
+# coding: utf-8
+# Created on Mon Apr 11 16:55:39 2022
+# @author: Lu Jian
+# Email:janelu@live.cn; lujian@sdc.icbc.com.cn
+
 from PIL import Image, ImageFilter
 import numpy as np
 from numpy.random import uniform,random
-
 
 np.random.seed(2022)
 class RandomPad:
@@ -61,8 +66,8 @@ class Normalize:
         if not isinstance(mean,(tuple,list)):
             mean=[mean]*3
             std=[std]*3
-        self.mean=np.array(mean)[np.newaxis,np.newaxis,...]
-        self.std=np.array(std)[np.newaxis,np.newaxis,...]
+        self.mean=np.array([[mean]])
+        self.std=np.array([[std]])
     def __call__(self,img_arr):
         return (img_arr/255 - self.mean)/self.std
     
@@ -73,11 +78,11 @@ class image_process:
         self.train = train
         if self.train:
             self.aug=(
-                (RandomPad(),0.5),
+                (RandomPad(),0.8),
                 (GaussianBlur(),0.5),
                 (MinFilter(),0.3),
                 (MaxFilter(),0.5),
-                (Rotate(),0.5),
+                (Rotate(),0.8),
             )
     def infer_process(self,img):
         img=self.resize(img)
