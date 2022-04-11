@@ -9,6 +9,11 @@ import numpy as np
 from numpy.random import uniform,random
 
 np.random.seed(2022)
+from PIL import Image, ImageFilter
+import numpy as np
+from numpy.random import uniform,random
+
+np.random.seed(2022)
 class RandomPad:
     def __init__(self,LR=20,UL=20,w=0.5):
         self.LR=LR
@@ -66,14 +71,14 @@ class Normalize:
         if not isinstance(mean,(tuple,list)):
             mean=[mean]*3
             std=[std]*3
-        self.mean=np.array([[mean]])
-        self.std=np.array([[std]])
+        self.mean=np.array([[[mean]]])
+        self.std=np.array([[[std]]])
     def __call__(self,img_arr):
         return (img_arr/255 - self.mean)/self.std
     
 class image_process:
-    def __init__(self,aug = True):
-        self.resize=Resize(384,384)
+    def __init__(self,size=384,aug = True):
+        self.resize=Resize(size,size)
         self.normalize=Normalize()
         self.aug_flag = aug
         if self.aug_flag:
@@ -87,7 +92,7 @@ class image_process:
     def infer_process(self,img):
         img=self.resize(img)
         img_arr = np.array(img)
-        return self.normalize(img_arr).transpose([2,0,1])
+        return img_arr
 
     def aug_process(self,img):
         for f,w in self.aug:
