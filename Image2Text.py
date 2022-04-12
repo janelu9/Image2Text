@@ -15,6 +15,9 @@ from paddle.nn.layer.transformer import _convert_param_attr_to_list
 import collections
 from paddlenlp.ops import InferTransformerDecoding
 from paddlenlp.transformers import TransformerBeamSearchDecoder
+from paddle.fluid import layers
+import numpy as np
+import os
 
 class DistilledVisionTransformer(VisionTransformer):
     def __init__(self,**kwargs):
@@ -137,13 +140,21 @@ class MultiHeadAttention(nn.Layer):
         v = tensor.transpose(x=v, perm=[0, 2, 1, 3])
         return k, v
 
-    def gen_cache(self, key, value=None, type=Cache):
+    def gen_cache(self, key, value=None, type=None):
         if type == MultiHeadAttention.StaticCache:  # static_kv
             k, v = self.compute_kv(key, value)
             return self.StaticCache(k, v)
         elif value is None:  #
-            k = tensor.zeros([key.shape[0], self.num_heads, 0, self.head_dim],dtype=key.dtype)
-            v = tensor.zeros([key.shape[0], self.num_heads, 0, self.head_dim],dtype=key.dtype)
+            k = layers.fill_constant_batch_size_like(
+                input=key,
+                shape=[-1, self.num_heads, 0, self.head_dim],
+                dtype=key.dtype,
+                value=0)
+            v = layers.fill_constant_batch_size_like(
+                input=key,
+                shape=[-1, self.num_heads, 0, self.head_dim],
+                dtype=key.dtype,
+                value=0)
             return self.Cache(k, v)
         else:
             return self.Cache(key, value)
@@ -339,13 +350,16 @@ class FasterTransformer(nn.Layer):
         self.alpha = args.pop("alpha")
         super(FasterTransformer, self).__init__()
         
+        self.word_embedding = model.word_embedding
+        self.pos_embedding = model.pos_embedding
         self.encoder=model.encoder
-        
+        self.decoder=model.decoder
+        self.project_out =model.project_out
         self.decoding = InferTransformerDecoding(
-            decoder=model.decoder,
-            word_embedding=model.word_embedding.word_embeddings,
-            positional_embedding=model.pos_embedding.position_embeddings,
-            linear=model.project_out,
+            decoder=self.decoder,
+            word_embedding=self.word_embedding.word_embeddings,
+            positional_embedding=self.pos_embedding.position_embeddings,
+            linear=self.project_out,
             num_decoder_layers=model.decoder.num_layers,
             n_head=model.decoder.n_head,
             d_model=model.decoder.d_model,
@@ -363,13 +377,13 @@ class FasterTransformer(nn.Layer):
             alpha=self.alpha)
         
         if self.decoding._fuse_qkv:
-            self._init_fuse_params(model.decoder.state_dict())
+            self._init_fuse_params(self.decoder.state_dict())
             
     def _init_fuse_params(self,decoder_state_dict):
         fuse_param={}
         for item in self.decoding.state_dict().keys():
             _, param_type ,num_layer = item.rsplit("_",2)
-            fuse_param[item]= paddle.concat((decoder_state_dict["layers.%s.self_attn.q_proj.%s" % (num_layer,param_type)],
+            fuse_param[item]= np.concatenate((decoder_state_dict["layers.%s.self_attn.q_proj.%s" % (num_layer,param_type)],
                                              decoder_state_dict["layers.%s.self_attn.k_proj.%s" % (num_layer,param_type)],
                                              decoder_state_dict["layers.%s.self_attn.v_proj.%s" % (num_layer,param_type)],
                                              ),-1)
