@@ -44,7 +44,7 @@ class SimpleDataSet(Dataset):
     
     def collate_fn(self,x):
         d={'img':[],'tgt':[],'label':[]}
-        max_len = max(map(len,[i["ids"] for i in x]))
+        max_len = max(len(i["ids"]) for i in x)
         for item in x:
             d['img'].append(item['img'])
             temp_id=item['ids']+[self.eos_id]+[self.pad_id]*(max_len-len(item['ids']))
