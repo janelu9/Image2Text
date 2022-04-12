@@ -67,8 +67,8 @@ class Normalize:
         if not isinstance(mean,(tuple,list)):
             mean=[mean]*3
             std=[std]*3
-        self.mean=np.array([[[mean]]])
-        self.std=np.array([[[std]]])
+        self.mean=np.array([[[mean]]],'float32')
+        self.std=np.array([[[std]]],'float32')
     def __call__(self,img_arr):
         return (img_arr/255 - self.mean)/self.std
     
@@ -87,7 +87,7 @@ class image_process:
             )
     def infer_process(self,img):
         img=self.resize(img)
-        img_arr = np.array(img)
+        img_arr = np.array(img,'float32')
         return img_arr
 
     def aug_process(self,img):
