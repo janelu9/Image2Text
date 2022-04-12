@@ -6,6 +6,8 @@
 
 from paddle.io import Dataset
 from PIL import Image
+import os
+import numpy as np
 
 class SimpleDataSet(Dataset):
     def __init__(self,img_pths,label_lists,image_process,tokenizer):
@@ -25,7 +27,7 @@ class SimpleDataSet(Dataset):
                 for line in fp.readlines():
                     img_name,text=line.strip().split("\t")
                     img_path = os.path.join(d, img_name)
-                    ids=tokenizer(text)["input_ids"]
+                    ids=self.tokenizer(text)["input_ids"]
                     data.append((img_path,ids))
         return data
     

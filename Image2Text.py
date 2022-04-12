@@ -17,7 +17,6 @@ from paddlenlp.ops import InferTransformerDecoding
 from paddlenlp.transformers import TransformerBeamSearchDecoder
 from paddle.fluid import layers
 import numpy as np
-import os
 
 class DistilledVisionTransformer(VisionTransformer):
     def __init__(self,**kwargs):
@@ -350,9 +349,9 @@ class FasterTransformer(nn.Layer):
         self.alpha = args.pop("alpha")
         super(FasterTransformer, self).__init__()
         
-        self.word_embedding = model.word_embedding
-        self.pos_embedding = model.pos_embedding
         self.encoder=model.encoder
+        self.word_embedding = model.word_embedding
+        self.pos_embedding = model.pos_embedding        
         self.decoder=model.decoder
         self.project_out =model.project_out
         self.decoding = InferTransformerDecoding(
@@ -377,16 +376,15 @@ class FasterTransformer(nn.Layer):
             alpha=self.alpha)
         
         if self.decoding._fuse_qkv:
-            self._init_fuse_params(self.decoder.state_dict())
+            self._init_fuse_params()
             
-    def _init_fuse_params(self,decoder_state_dict):
+    def _init_fuse_params(self):
         fuse_param={}
         for item in self.decoding.state_dict().keys():
             _, param_type ,num_layer = item.rsplit("_",2)
-            fuse_param[item]= np.concatenate((decoder_state_dict["layers.%s.self_attn.q_proj.%s" % (num_layer,param_type)],
-                                             decoder_state_dict["layers.%s.self_attn.k_proj.%s" % (num_layer,param_type)],
-                                             decoder_state_dict["layers.%s.self_attn.v_proj.%s" % (num_layer,param_type)],
-                                             ),-1)
+            fuse_param[item]= np.concatenate((self.decoder.state_dict()["layers.%s.self_attn.q_proj.%s" % (num_layer,param_type)],
+                                   self.decoder.state_dict()["layers.%s.self_attn.k_proj.%s" % (num_layer,param_type)],
+                                   self.decoder.state_dict()["layers.%s.self_attn.v_proj.%s" % (num_layer,param_type)],),-1)
         self.decoding.load_dict(fuse_param)
                  
             
