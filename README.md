@@ -1,7 +1,7 @@
 # Image2Text Model
 An image to text model base on transformer which can also be used on OCR task.
 
-在这里集成了 NVIDIA [FasterTransformer](https://github.com/NVIDIA/FasterTransformer/tree/v3.1) 用于预测加速。同时集成了 FasterTransformer float32 以及 float16 预测。以下是使用 FasterTransformer 的说明。
+    在这里集成了 NVIDIA [FasterTransformer](https://github.com/NVIDIA/FasterTransformer/tree/v3.1) 用于预测加速。同时集成了 FasterTransformer float32 以及 float16 预测。以下是使用 FasterTransformer 的说明。
 
 ## 环境说明
 
@@ -19,13 +19,13 @@ An image to text model base on transformer which can also be used on OCR task.
   pip install attrdict pyyaml paddlenlp
   ```
   
- ## Model说明
+ ## 模型说明
  
 * 本文使用了Swin Transformer作为图像部分的编码器；
 * 使用GPT等基于TansformerDecoder的中文预训练模型作为TrOCR文本部分的解码器以适用于中文OCR识别任务；
 * 集成了 NVIDIA FasterTransformer 用于预测加速，以解决当模型解码器的维度、束搜索空间、层数，较高、大、深时可能出现的推断效率问题。
  
- `image2text.py`中包含了用于训练的Image2Text模型和用于快速推断的FasterTransformer, 模型基于paddlepaddle开发. 这时你可以从[paddlenlp模型库](https://paddlenlp.readthedocs.io/zh/latest/model_zoo/transformers.html)中加载各种基于中文数据集的预训练模型. 当处理OCR任务时其基本等同于微软研究院基于Fairseq开源的[TrOCR](https://www.msra.cn/zh-cn/news/features/trocr). 结合[paddlepaddle的使用指南](https://www.paddlepaddle.org.cn/documentation/docs/zh/guides/index_cn.html)，You can quickly use the Chinese version of TrOCR to fine tune your model now !
+    `image2text.py`中包含了用于训练的Image2Text模型和用于快速推断的FasterTransformer, 模型基于paddlepaddle开发. 这时你可以从[paddlenlp模型库](https://paddlenlp.readthedocs.io/zh/latest/model_zoo/transformers.html)中加载各种基于中文数据集的预训练模型. 当处理OCR任务时其基本等同于微软研究院基于Fairseq开源的[TrOCR](https://www.msra.cn/zh-cn/news/features/trocr). 结合[paddlepaddle的使用指南](https://www.paddlepaddle.org.cn/documentation/docs/zh/guides/index_cn.html)，You can quickly use the Chinese version of TrOCR to fine tune your model now !
  
  *注：FasterTransformer会在**FasterTransformer**第一次被调用时自动编译.*
  
@@ -41,6 +41,6 @@ An image to text model base on transformer which can also be used on OCR task.
 
 	# 单机多卡启动，设置当前使用第0号和第1号卡
 	$ export CUDA_VISIBLE_DEVICES=0,1
-	$ python -m paddle.distributed.launch train.py```
-	
-*训练过程中程序自动保留且仅保留测试集准确率至少在0.65以上且最高的那个模型参数于`./best_model.pdparams`中。
+	$ python -m paddle.distributed.launch train.py
+
+*训练过程中程序自动保留且仅保留测试集准确率至少在0.65以上且最高的那个模型参数于`./best_model.pdparams`中。*
