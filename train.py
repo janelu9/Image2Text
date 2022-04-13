@@ -15,6 +15,7 @@ import os
 from image2text import SwinTransformerEncoder,TransformerDecoder,Image2Text,WordEmbedding,PositionalEmbedding,FasterTransformer
 from lr_scheduler import InverseSqrt
 from argparse import ArgumentParser
+import numpy as np
 
 def parse_args():
 
@@ -25,31 +26,44 @@ def parse_args():
     parser.add_argument("--decoder-pretrained", type=str,default="../gpt/gpt-cpm-small-cn-distill.pdparams",
                         help="pretrained model's params path")
     
-    parser.add_argument("--data_dir", type=str,default="/mnt/e/OCR/unilm/trocr/IAM/image/",
+    parser.add_argument("--data-dir", type=str,default="/mnt/e/OCR/unilm/trocr/IAM/image/",
                         help="data _dir")
     
-    parser.add_argument("--train_list", type=str,default="/mnt/e/OCR/unilm/trocr/IAM/gt_test.txt",
-                        help="data _dir")
+    parser.add_argument("--train-list", type=str,default="/mnt/e/OCR/unilm/trocr/IAM/gt_test.txt",
+                        help="train data dir")
                              
+    parser.add_argument("--test-list", type=str,default="/mnt/e/OCR/unilm/trocr/IAM/gt_test.txt",
+                        help="test data dir")                         
     return parser.parse_args()
 
 
 def train(args):
     dist.init_parallel_env()
     device = 'gpu:{}'.format(dist.ParallelEnv().dev_id)
-    device = paddle.set_device(device)
-    tokenizer = GPTChineseTokenizer("gpt-cpm-cn-sentencepiece.model")
-    dataset=SimpleDataSet(args.data_dir,args.train_list,image_process(224),tokenizer)
-
+    device = paddle.set_device(device)    
+    tokenizer = GPTChineseTokenizer("gpt-cpm-cn-sentencepiece.model")    
+    train_dataset=SimpleDataSet(args.data_dir,args.train_list,image_process(224),tokenizer)
+    test_dataset=SimpleDataSet(args.data_dir,args.test_list,image_process(224,False),tokenizer)
     train_loader = DataLoader(
-        dataset=dataset,
+        dataset=train_dataset,
         shuffle=True, 
         batch_size=8,
         drop_last=False,
         places=device,
-        num_workers=1,
+        num_workers=2,
         return_list=True,
-        collate_fn = dataset.collate_fn,
+        collate_fn = train_dataset.collate_fn,
+        use_shared_memory=True)
+    
+    test_loader = DataLoader(
+        dataset=test_dataset,
+        shuffle=False, 
+        batch_size=2,
+        drop_last=False,
+        places=device,
+        num_workers=2,
+        return_list=True,
+        collate_fn = test_dataset.collate_fn,
         use_shared_memory=True)
         
     encoder = SwinTransformerEncoder(img_size=224,embed_dim=48,depths=[2, 2, 6, 2],num_heads=[3, 6, 12, 24],window_size=7,drop_path_rate=0.2)
@@ -76,29 +90,80 @@ def train(args):
     load_pretrained_params(args.decoder_pretrained)
     model=Image2Text(encoder,decoder,word_emb,pos_emb,project_out,dataset.eos_id)
     fast_infer = FasterTransformer(model,max_out_len=70)
+    
     model = paddle.DataParallel(model)
     model.train()
     scheduler = paddle.optimizer.lr.NoamDecay(d_model=decoder.d_model, warmup_steps=500, verbose=False)
     adam = paddle.optimizer.Adam(parameters=model.parameters(),learning_rate=scheduler,weight_decay= 0.0001)
-    epochs=5
-    for epoch in range(epochs):
-        for batch_id, data in enumerate(train_loader()):
-            predicts = model(data['img'],data['tgt'],True) 
+    
+    def metric(pred,label,tokenizer):
+        pred=pred.argmax(-1)
+        pred=pred.numpy()
+        lable=label.numpy()
+        m,n = pred.shape
+        right = 0
+        ignore={tokenizer.eos_token_id,tokenizer.bos_token_id}
+        _,e=np.where(label==tokenizer.eos_token_id)
+        for i in range(m):
+            p=[]
+            for j in range(n):
+                t=int(pred[i][j])
+                if t not in ignore: 
+                    p.append(t)
+                elif t== tokenizer.eos_token_id:
+                    break
+            p=tokenizer.convert_ids_to_string(p)
+            l=tokenizer.convert_ids_to_string([int(j) for j in label[i][:e[i]]])
+            if p==l:
+                right+=1
+        return right,m
+        
+    epochs=500
+    batch_id=1
+    R=S=L=0
+    log_period=200
+    test_period=1000
+    train_acc=0
+    test_acc=0.6
+    for epoch in range(epochs):    
+        for data in train_loader():
+            predicts = model(data['img'],data['tgt'],tgt_mask=True)
             loss = paddle.nn.functional.cross_entropy(predicts, data['label'])
-            acc = 1
-            '''
-            train metric codes
-            '''
+            right,samples = metric(predicts,data['label'],tokenizer)
             loss.backward()
-            if (batch_id+1) % 10 == 0:
-                print("epoch: {}, batch_id: {}, loss is: {}, acc is: {}".format(epoch, batch_id, loss.numpy(), acc))
             adam.step()
             adam.clear_grad()
             scheduler.step()
-        '''
-        eval test dataset codes
-        save model's params codes
-        '''
+            
+            batch_id+=1
+            R += right
+            S += samples
+            L += loss.numpy()[0]
+            if (batch_id) % log_period == 0:
+                cur_train_period_acc = R/S
+                print("epoch: {}, batch_id: {}, loss is: {}, lr is: {}, acc is: {}".\
+                format(epoch, batch_id, L/log_period,scheduler.get_lr() ,cur_train_period_acc))
+                R=S=L=0
+                train_acc=max(cur_train_period_acc,train_acc)
+            if (batch_id) % test_period == 0 and train_acc>=test_acc:
+                fast_infer.load_dict(model.state_dict())
+                fast_infer._init_fuse_params()
+                fast_infer.eval()
+                with paddle.no_grad():
+                    TR=0
+                    for data in test_loader():
+                        predicts = model(data['img']).transpose([1,2,0])[:,0,:]
+                        test_right,_ = metric(predicts,data['label'],tokenizer)
+                        TR+=test_right
+                cur_test_acc=TR/len(test_dataset)
+                print("epoch: {}, batch_id: {}, test_acc is: {}".format(epoch, batch_id, cur_test_acc))
+                model.train()
+                if cur_test_acc>test_acc:
+                    test_acc = cur_test_acc
+                    train_acc=1
+                    print("save model's params to ./best_model.pdparams")
+                    paddle.save(model.state_dict(),"./best_model.pdparams")
+                        
 if __name__ == '__main__':
     args = parse_args()
     train(args)

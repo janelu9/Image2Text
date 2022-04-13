@@ -24,3 +24,18 @@ An image to text model base on transformer which can also be used on OCR task.
   当处理OCR任务时其等同于微软研究院基于Fairseq开源的[TrOCR](https://www.msra.cn/zh-cn/news/features/trocr). 结合[paddlepaddle的使用指南](https://www.paddlepaddle.org.cn/documentation/docs/zh/guides/index_cn.html)，You can quickly use the Chinese version of TrOCR to fine tune your model now !
  
  *注：FasterTransformer会在**FasterTransformer**第一次被调用时自动编译.*
+ 
+ ## 模型训练
+ 1. 配置好数据目录、训练集标签、测试集标签和预训练模型位置等参数。
+ 2. 训练模型：
+	 ```
+	 # 单机多卡启动，默认使用当前可见的所有卡
+	$ python -m paddle.distributed.launch train.py
+
+	# 单机多卡启动，设置当前使用的第0号和第1号卡
+	$ python -m paddle.distributed.launch --gpus '0,1' train.py
+
+	# 单机多卡启动，设置当前使用第0号和第1号卡
+	$ export CUDA_VISIBLE_DEVICES=0,1
+	$ python -m paddle.distributed.launch train.py
+		```
