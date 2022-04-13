@@ -13,6 +13,7 @@ from paddlenlp.transformers import GPTChineseTokenizer
 import paddle.distributed as dist
 import os
 from image2text import SwinTransformerEncoder,TransformerDecoder,Image2Text,WordEmbedding,PositionalEmbedding,FasterTransformer
+from lr_scheduler import InverseSqrt
 from argparse import ArgumentParser
 
 def parse_args():
