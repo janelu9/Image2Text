@@ -21,7 +21,7 @@ def parse_args():
                                         "helper utility that will spawn up "
                                         "multiple distributed processes")
 
-    parser.add_argument("--decoder-pretrained", type=str,default="gpt/gpt-cpm-small-cn-distill.pdparams",
+    parser.add_argument("--decoder-pretrained", type=str,default="../gpt/gpt-cpm-small-cn-distill.pdparams",
                         help="pretrained model's params path")
     
     parser.add_argument("--data_dir", type=str,default="/mnt/e/OCR/unilm/trocr/IAM/image/",
@@ -37,16 +37,16 @@ def train(args):
     dist.init_parallel_env()
     device = 'gpu:{}'.format(dist.ParallelEnv().dev_id)
     device = paddle.set_device(device)
-    tokenizer = GPTChineseTokenizer("gpt/gpt-cpm-cn-sentencepiece.model")
+    tokenizer = GPTChineseTokenizer("gpt-cpm-cn-sentencepiece.model")
     dataset=SimpleDataSet(args.data_dir,args.train_list,image_process(224),tokenizer)
 
     train_loader = DataLoader(
         dataset=dataset,
         shuffle=True, 
-        batch_size=2,
+        batch_size=8,
         drop_last=False,
         places=device,
-        num_workers=2,
+        num_workers=1,
         return_list=True,
         collate_fn = dataset.collate_fn,
         use_shared_memory=True)
