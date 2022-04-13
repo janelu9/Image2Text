@@ -124,7 +124,7 @@ def train(args):
     log_period=200
     test_period=1000
     train_acc=0
-    test_acc=0.6
+    test_acc=0.65
     for epoch in range(epochs):    
         for data in train_loader():
             predicts = model(data['img'],data['tgt'],tgt_mask=True)
