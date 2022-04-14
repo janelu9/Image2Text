@@ -17,6 +17,7 @@ from image2text import (SwinTransformerEncoder,TransformerDecoder,Image2Text,Wor
 from lr_scheduler import InverseSqrt
 from argparse import ArgumentParser
 import numpy as np
+from time import time
 
 def parse_args():
 
@@ -127,6 +128,7 @@ def train(args):
     test_period=1000
     train_acc=0
     test_acc=0.65
+    st=time()
     for epoch in range(epochs):    
         for data in train_loader():
             predicts = model(data['img'],data['tgt'],tgt_mask=True)
@@ -143,10 +145,11 @@ def train(args):
             L += loss.numpy()[0]
             if (batch_id) % log_period == 0:
                 cur_train_period_acc = R/S
-                print("epoch: {}, batch_id: {}, loss is: {}, lr is: {}, acc is: {}".\
-                format(epoch, batch_id, L/log_period,scheduler.get_lr() ,cur_train_period_acc))
+                print("epoch: {}, batch_id: {}, loss: {}, lr: {}, acc: {}, fps:{}".\
+                format(epoch, batch_id, L/log_period,scheduler.get_lr() ,cur_train_period_acc,S/(time()-st)/1000))
                 R=S=L=0
                 train_acc=max(cur_train_period_acc,train_acc)
+                st=time()
             if (batch_id) % test_period == 0 and train_acc>=test_acc:
                 fast_infer.load_dict(model.state_dict())
                 fast_infer._init_fuse_params()
@@ -158,14 +161,14 @@ def train(args):
                         test_right,_ = metric(predicts,data['label'],tokenizer)
                         TR+=test_right
                 cur_test_acc=TR/len(test_dataset)
-                print("epoch: {}, batch_id: {}, test_acc is: {}".format(epoch, batch_id, cur_test_acc))
+                print("epoch: {}, batch_id: {}, test_acc : {}, cost_time: {}s".format(epoch, batch_id, cur_test_acc,(time()-st)*1000)
                 model.train()
                 if cur_test_acc>test_acc:
                     test_acc = cur_test_acc
                     train_acc=1
                     print("save model's params to ./best_model.pdparams")
                     paddle.save(model.state_dict(),"./best_model.pdparams")
-                        
+                st=time()     
 if __name__ == '__main__':
     args = parse_args()
     train(args)
