@@ -12,7 +12,8 @@ from paddle.io import DataLoader
 from paddlenlp.transformers import GPTChineseTokenizer
 import paddle.distributed as dist
 import os
-from image2text import SwinTransformerEncoder,TransformerDecoder,Image2Text,WordEmbedding,PositionalEmbedding,FasterTransformer
+from image2text import (SwinTransformerEncoder,TransformerDecoder,Image2Text,WordEmbedding,
+                        PositionalEmbedding,FasterTransformer,InferTransformerModel)
 from lr_scheduler import InverseSqrt
 from argparse import ArgumentParser
 import numpy as np
