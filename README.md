@@ -1,7 +1,7 @@
 # Image2Text Model
 An image to text model base on transformer which can also be used on OCR task.
 
-    在这里集成了 NVIDIA [FasterTransformer](https://github.com/NVIDIA/FasterTransformer/tree/v3.1) 用于预测加速。同时集成了 FasterTransformer float32 以及 float16 预测。以下是使用 FasterTransformer 的说明。
+在这里集成了 NVIDIA [FasterTransformer](https://github.com/NVIDIA/FasterTransformer/tree/v3.1) 用于预测加速。同时集成了 FasterTransformer float32 以及 float16 预测。以下是使用 FasterTransformer 的说明。
 
 ## 环境说明
 
@@ -43,5 +43,4 @@ An image to text model base on transformer which can also be used on OCR task.
 	$ export CUDA_VISIBLE_DEVICES=0,1
 	$ python -m paddle.distributed.launch train.py
 	
-
 *训练过程中会自动保存且仅保存测试集准确率至少在0.65以上且最高的那个模型参数于`./best_model.pdparams`中。*
