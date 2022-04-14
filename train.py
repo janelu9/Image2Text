@@ -68,7 +68,7 @@ def train(args):
         
     encoder = SwinTransformerEncoder(img_size=224,embed_dim=48,depths=[2, 2, 6, 2],num_heads=[3, 6, 12, 24],window_size=7,drop_path_rate=0.2)
     decoder = TransformerDecoder(d_model=384,n_head=6,dim_feedforward=1536,num_layers=6)
-    word_emb = WordEmbedding(vocab_size=tokenizer.vocab_size,emb_dim=decoder.d_model,pad_id=dataset.pad_id)
+    word_emb = WordEmbedding(vocab_size=tokenizer.vocab_size,emb_dim=decoder.d_model,pad_id=train_dataset.pad_id)
     pos_emb = PositionalEmbedding(decoder.d_model,max_length=512,learned=True)
     project_out = nn.Linear(decoder.d_model, word_emb.vocab_size)
     
