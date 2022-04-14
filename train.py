@@ -91,8 +91,12 @@ def train(args):
     
     load_pretrained_params(args.decoder_pretrained)
     model=Image2Text(encoder,decoder,word_emb,pos_emb,project_out,train_dataset.eos_id)
-    fast_infer = FasterTransformer(model,max_out_len=70)
-    
+    try:
+        fast = True
+        infer = FasterTransformer(model,max_out_len=70)
+    except:
+        fast = False
+        infer = InferTransformerModel(model,max_out_len=70)    
     model = paddle.DataParallel(model)
     model.train()
     scheduler = paddle.optimizer.lr.NoamDecay(d_model=decoder.d_model, warmup_steps=500, verbose=False)
@@ -151,13 +155,16 @@ def train(args):
                 train_acc=max(cur_train_period_acc,train_acc)
                 st=time()
             if (batch_id) % test_period == 0 and train_acc>=test_acc:
-                fast_infer.load_dict(model.state_dict())
-                fast_infer._init_fuse_params()
-                fast_infer.eval()
+                if fast:
+                    infer._init_fuse_params()
+                infer.eval()
                 with paddle.no_grad():
                     TR=0
                     for data in test_loader():
-                        predicts = fast_infer(data['img']).transpose([1,2,0])[:,0,:]
+                        predicts = infer(data['img'])
+                        if fast:
+                            predicts=predicts.transpose([1,0,2])
+                        predicts=predicts[:,:,0]
                         test_right,_ = metric(predicts,data['label'],tokenizer)
                         TR+=test_right
                 cur_test_acc=TR/len(test_dataset)
