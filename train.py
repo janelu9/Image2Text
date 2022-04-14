@@ -88,7 +88,7 @@ def train(args):
         decoder.load_dict(state_dict)
     
     load_pretrained_params(args.decoder_pretrained)
-    model=Image2Text(encoder,decoder,word_emb,pos_emb,project_out,dataset.eos_id)
+    model=Image2Text(encoder,decoder,word_emb,pos_emb,project_out,train_dataset.eos_id)
     fast_infer = FasterTransformer(model,max_out_len=70)
     
     model = paddle.DataParallel(model)
