@@ -88,8 +88,10 @@ def train(args):
         if len(un_matched)>0:
             print("unmatched keys:%s" % str(un_matched))
         decoder.load_dict(state_dict)
-    
-    load_pretrained_params(args.decoder_pretrained)
+    try:
+        load_pretrained_params(args.decoder_pretrained)
+    except:
+        print("pretrained decoder isn't loaded")
     model=Image2Text(encoder,decoder,word_emb,pos_emb,project_out,train_dataset.eos_id)
     try:
         fast = True
@@ -150,7 +152,7 @@ def train(args):
             if (batch_id) % log_period == 0:
                 cur_train_period_acc = R/S
                 print("epoch: {}, batch_id: {}, loss: {}, lr: {}, acc: {}, fps:{}".\
-                format(epoch, batch_id, L/log_period,scheduler.get_lr() ,cur_train_period_acc,S/(time()-st)/1000))
+                format(epoch, batch_id, L/log_period,scheduler.get_lr() ,cur_train_period_acc,S/(time()-st)*1000))
                 R=S=L=0
                 train_acc=max(cur_train_period_acc,train_acc)
                 st=time()
@@ -168,7 +170,7 @@ def train(args):
                         test_right,_ = metric(predicts,data['label'],tokenizer)
                         TR+=test_right
                 cur_test_acc=TR/len(test_dataset)
-                print("epoch: {}, batch_id: {}, test_acc : {}, cost_time: {}s".format(epoch, batch_id, cur_test_acc,(time()-st)*1000)
+                print("epoch: {}, batch_id: {}, test_acc : {}, cost_time: {}s".format(epoch, batch_id, cur_test_acc,(time()-st)/1000)
                 model.train()
                 if cur_test_acc>test_acc:
                     test_acc = cur_test_acc
