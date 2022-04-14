@@ -460,15 +460,22 @@ class InferTransformerModel(nn.Layer):
             self.alpha = kwargs.get("alpha", 0.6)
             self.rel_len = kwargs.get("rel_len", False)
         super(InferTransformerModel, self).__init__()
-
+        
+        self.encoder=model.encoder
+        self.word_embedding = model.word_embedding
+        self.pos_embedding = model.pos_embedding        
+        self.decoder=model.decoder
+        self.project_out =model.project_out
+        self.bos_id = model.bos_id
+        self.eos_id = model.eos_id        
+        self.vocab_size = model.vocab_size
         cell = TransformerDecodeCell(
-            model.decoder, model.word_embedding,
-            model.pos_embedding, model.project_out, model.dropout)
+            self.decoder, self.word_embedding,
+            self.pos_embedding, self.project_out, self.dropout)
 
         self.decode = TransformerBeamSearchDecoder(
-            cell, model.bos_id, model.eos_id, beam_size, var_dim_in_state=2)
-            
-        self.model=model
+            cell, self.bos_id, self.eos_id, beam_size, var_dim_in_state=2)
+        
 
     def forward(self, enc_input, trg_word=None):
     
@@ -481,10 +488,10 @@ class InferTransformerModel(nn.Layer):
 
         if self.beam_search_version == 'v1':
 
-            enc_output = self.model.encoder(enc_input)
+            enc_output = self.encoder(enc_input)
 
             # Init states (caches) for transformer, need to be updated according to selected beam
-            incremental_cache, static_cache = self.model.decoder.gen_cache(
+            incremental_cache, static_cache = self.decoder.gen_cache(
                 enc_output, do_zip=True)
 
             static_cache, enc_output = TransformerBeamSearchDecoder.tile_beam_merge_with_batch(
@@ -535,7 +542,7 @@ class InferTransformerModel(nn.Layer):
             return paddle.reshape(tensor,
                                   [shape[0] * shape[1]] + list(shape[2:]))
 
-        enc_output = self.model.encoder(enc_input)
+        enc_output = self.encoder(enc_input)
 
         # constant number
         inf = float(1. * 1e7)
@@ -552,7 +559,7 @@ class InferTransformerModel(nn.Layer):
 
         alive_seq = paddle.tile(
             paddle.cast(
-                paddle.assign(np.array([[[self.model.bos_id]]])), "int64"),
+                paddle.assign(np.array([[[self.bos_id]]])), "int64"),
             [batch_size, beam_size, 1])
 
         ## init for the finished ##
@@ -563,7 +570,7 @@ class InferTransformerModel(nn.Layer):
 
         finished_seq = paddle.tile(
             paddle.cast(
-                paddle.assign(np.array([[[self.model.bos_id]]])), "int64"),
+                paddle.assign(np.array([[[self.bos_id]]])), "int64"),
             [batch_size, beam_size, 1])
         finished_flags = paddle.zeros_like(finished_scores)
 
@@ -576,7 +583,7 @@ class InferTransformerModel(nn.Layer):
         enc_output = merge_beam_dim(expand_to_beam_size(enc_output, beam_size))
 
         ## init states (caches) for transformer, need to be updated according to selected beam
-        caches = self.model.decoder.gen_cache(enc_output, do_zip=False)
+        caches = self.decoder.gen_cache(enc_output, do_zip=False)
 
         if trg_word is not None:
             scores_dtype = finished_scores.dtype
@@ -673,8 +680,8 @@ class InferTransformerModel(nn.Layer):
 
             topk_log_probs = topk_scores * length_penalty
 
-            topk_beam_index = topk_ids // self.model.vocab_size
-            topk_ids = topk_ids % self.model.vocab_size
+            topk_beam_index = topk_ids // self.vocab_size
+            topk_ids = topk_ids % self.vocab_size
 
             topk_coordinates = get_topk_coordinates(
                 topk_beam_index,
@@ -694,7 +701,7 @@ class InferTransformerModel(nn.Layer):
             eos = paddle.full(
                 shape=paddle.shape(topk_ids),
                 dtype=alive_seq.dtype,
-                fill_value=self.model.eos_id)
+                fill_value=self.eos_id)
             topk_finished = paddle.cast(paddle.equal(topk_ids, eos), "float32")
 
             # topk_seq: [batch_size, 2*beam_size, i+1]
@@ -728,7 +735,7 @@ class InferTransformerModel(nn.Layer):
                     finished_seq, paddle.full(
                         shape=[batch_size, beam_size, 1],
                         dtype=finished_seq.dtype,
-                        fill_value=self.model.eos_id)
+                        fill_value=self.eos_id)
                 ],
                 axis=2)
             curr_scores += (1. - curr_finished) * -inf
@@ -775,14 +782,14 @@ class InferTransformerModel(nn.Layer):
                 shape=paddle.shape(pre_word),
                 dtype=alive_seq.dtype,
                 fill_value=i)
-            trg_emb = self.model.word_embedding(pre_word)
-            trg_pos_emb = self.model.pos_embedding(trg_pos)
+            trg_emb = self.word_embedding(pre_word)
+            trg_pos_emb = self.pos_embedding(trg_pos)
             trg_emb = trg_emb + trg_pos_emb
-            dec_input = self.model.dropout(trg_emb)
+            dec_input = self.dropout(trg_emb)
 
-            logits, caches = self.model.decoder(
+            logits, caches = self.decoder(
                 dec_input, enc_output, None, trg_src_attn_bias, caches)
-            logits = self.model.project_out(logits)
+            logits = self.project_out(logits)
             topk_seq, topk_log_probs, topk_scores, topk_finished, states = grow_topk(
                 i, logits, alive_seq, alive_log_probs, caches)
             alive_seq, alive_log_probs, states = grow_alive(
