@@ -32,7 +32,7 @@ An image to text model base on transformer which can also be used on OCR task.
  ## 模型训练调优、评估和保存
  1. 配置好数据目录、训练集标签、测试集标签和预训练模型位置等参数。
  2. 训练模型：
-	 ```
+```
 	# 单机多卡启动，默认使用当前可见的所有卡
 	$ python -m paddle.distributed.launch train.py
 
@@ -42,5 +42,5 @@ An image to text model base on transformer which can also be used on OCR task.
 	# 单机多卡启动，设置当前使用第0号和第1号卡
 	$ export CUDA_VISIBLE_DEVICES=0,1
 	$ python -m paddle.distributed.launch train.py
-	
+```	
 *训练过程中会自动保存且仅保存测试集准确率至少在0.65以上且最高的那个模型参数于`./best_model.pdparams`中。*
