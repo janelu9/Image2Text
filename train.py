@@ -97,7 +97,8 @@ def train(args):
     adam = paddle.optimizer.Adam(parameters=model.parameters(),learning_rate=scheduler,weight_decay= 0.0001)
     
     def metric(pred,label,tokenizer):
-        pred=pred.argmax(-1)
+        if len(pred.shape)==3:
+            pred=pred.argmax(-1)
         pred=pred.numpy()
         lable=label.numpy()
         m,n = pred.shape
@@ -152,7 +153,7 @@ def train(args):
                 with paddle.no_grad():
                     TR=0
                     for data in test_loader():
-                        predicts = model(data['img']).transpose([1,2,0])[:,0,:]
+                        predicts = fast_infer(data['img']).transpose([1,2,0])[:,0,:]
                         test_right,_ = metric(predicts,data['label'],tokenizer)
                         TR+=test_right
                 cur_test_acc=TR/len(test_dataset)
