@@ -469,6 +469,8 @@ class InferTransformerModel(nn.Layer):
         self.bos_id = model.bos_id
         self.eos_id = model.eos_id        
         self.vocab_size = model.vocab_size
+        self.dropout = model.dropout
+        
         cell = TransformerDecodeCell(
             self.decoder, self.word_embedding,
             self.pos_embedding, self.project_out, self.dropout)
