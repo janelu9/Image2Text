@@ -209,34 +209,33 @@ class TransformerDecoderLayer(nn.Layer):
             tgt = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
             tgt = residual + self.dropout3(tgt)
             return (tgt, (incremental_cache,static_cache))
-        else:
-            if cache is None:
-                residual = tgt
-                tgt = self.self_attn(tgt, tgt, tgt, tgt_mask, None)
-                tgt = residual + self.dropout1(tgt)
-                tgt = self.norm1(tgt)
-                residual = tgt
-                tgt = self.cross_attn(tgt, memory, memory, memory_mask, None)
-                tgt = residual + self.dropout2(tgt)
-                tgt = self.norm2(tgt)
-                residual = tgt
-                tgt = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
-                tgt = residual + self.dropout3(tgt)
-                tgt = self.norm3(tgt)
-                return tgt
+        if cache is None:
             residual = tgt
-            tgt,incremental_cache = self.self_attn(tgt, tgt, tgt, tgt_mask,cache[0])
+            tgt = self.self_attn(tgt, tgt, tgt, tgt_mask, None)
             tgt = residual + self.dropout1(tgt)
             tgt = self.norm1(tgt)
             residual = tgt
-            tgt, static_cache= self.cross_attn(tgt, memory, memory, memory_mask,cache[1])
+            tgt = self.cross_attn(tgt, memory, memory, memory_mask, None)
             tgt = residual + self.dropout2(tgt)
             tgt = self.norm2(tgt)
             residual = tgt
             tgt = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
             tgt = residual + self.dropout3(tgt)
             tgt = self.norm3(tgt)
-            return (tgt, (incremental_cache,static_cache))
+            return tgt
+        residual = tgt
+        tgt,incremental_cache = self.self_attn(tgt, tgt, tgt, tgt_mask,cache[0])
+        tgt = residual + self.dropout1(tgt)
+        tgt = self.norm1(tgt)
+        residual = tgt
+        tgt, static_cache= self.cross_attn(tgt, memory, memory, memory_mask,cache[1])
+        tgt = residual + self.dropout2(tgt)
+        tgt = self.norm2(tgt)
+        residual = tgt
+        tgt = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
+        tgt = residual + self.dropout3(tgt)
+        tgt = self.norm3(tgt)
+        return (tgt, (incremental_cache,static_cache))
 
     def gen_cache(self, memory):
         incremental_cache = self.self_attn.gen_cache(memory, False)
