@@ -30,7 +30,7 @@ An image to text model base on transformer which can also be used on OCR task.
  *注：FasterTransformer会在**FasterTransformer**第一次被调用时自动编译.*
  
  ## 模型训练调优、评估和保存
- 1. 配置好数据目录、训练集标签、测试集标签和预训练模型位置等参数。
+ 1. 在`train.py`中配置好数据目录、训练集标签、测试集标签和预训练模型位置等参数。
  2. 训练模型：
 ```
 	# 单机多卡启动，默认使用当前可见的所有卡
