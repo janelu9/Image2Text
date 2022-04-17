@@ -12,7 +12,6 @@ from vision_transformer import VisionTransformer, Identity, trunc_normal_, zeros
 from swin_transformer import SwinTransformer
 from paddle.framework import ParamAttr
 from paddle.nn.layer.transformer import _convert_param_attr_to_list
-import collections
 from paddlenlp.ops import InferTransformerDecoding
 from paddlenlp.transformers import TransformerBeamSearchDecoder
 from paddle.fluid import layers
@@ -380,8 +379,7 @@ class FasterTransformer(nn.Layer):
                                    self.decoder.state_dict()["layers.%s.self_attn.k_proj.%s" % (num_layer,param_type)],
                                    self.decoder.state_dict()["layers.%s.self_attn.v_proj.%s" % (num_layer,param_type)],),-1)
         self.decoding.load_dict(fuse_param)
-                 
-            
+                           
     def forward(self, img, trg_word=None):
         enc_output = self.encoder(img)
         if self.use_fp16_decoding and enc_output.dtype != paddle.float16:
