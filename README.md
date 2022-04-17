@@ -27,7 +27,7 @@ An image to text model base on transformer which can also be used on OCR task.
  
 `image2text.py`中包含了用于训练的Image2Text模型和用于快速推断的FasterTransformer, 模型基于paddlepaddle开发. 这时你可以从[paddlenlp模型库](https://paddlenlp.readthedocs.io/zh/latest/model_zoo/transformers.html)中加载各种基于中文数据集的预训练模型. 当处理OCR任务时其基本等同于微软研究院基于Fairseq开源的[TrOCR](https://www.msra.cn/zh-cn/news/features/trocr). 结合[paddlepaddle的使用指南](https://www.paddlepaddle.org.cn/documentation/docs/zh/guides/index_cn.html)，You can quickly use the Chinese version of TrOCR to fine tune your model now !
  
- *注：FasterTransformer会在**FasterTransformer**第一次被调用时自动编译.*
+ *注：FasterTransformer会在**FasterTransformer**第一次被调用时自动编译。*
  
  ## 模型训练调优、评估和保存
  1. 在`train.py`中配置好数据目录、训练集标签、测试集标签和预训练模型位置等参数。
@@ -43,4 +43,4 @@ An image to text model base on transformer which can also be used on OCR task.
 	$ export CUDA_VISIBLE_DEVICES=0,1
 	$ python -m paddle.distributed.launch train.py
 ```	
-*训练过程中会自动保存且仅保存测试集准确率至少在0.65以上且最高的那个模型参数于`./best_model.pdparams`中。*
+*注：训练过程中会自动保存且仅保存测试集准确率至少在0.65以上且最高的那个模型参数于`./best_model.pdparams`中。模型也可以通过`paddle.jit.to_static`转换为静态图进一步提升推断效率。*

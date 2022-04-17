@@ -848,3 +848,5 @@ class InferTransformerModel(nn.Layer):
 # infer.eval()
 # with paddle.no_grad():
     # out1=infer(img)
+     
+# paddle.jit.save(paddle.jit.to_static(infer,input_spec=[paddle.static.InputSpec(name='img',shape=[None,3,224,224], dtype="float32")]),"infer")
