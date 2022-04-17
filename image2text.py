@@ -98,10 +98,7 @@ class WordEmbedding(nn.Layer):
     def forward(self, word):
         return self.emb_dim**0.5 * self.word_embeddings(word)
  
-        
 class MultiHeadAttention(nn.Layer):
-    Cache = collections.namedtuple("Cache", ["k", "v"])
-    StaticCache = collections.namedtuple("StaticCache", ["k", "v"])
     def __init__(self,embed_dim,num_heads,dropout=0.,kdim=None,vdim=None,need_weights=False,weight_attr=None,bias_attr=None,**kwargs):
         super(MultiHeadAttention, self).__init__()
         self.embed_dim = embed_dim
@@ -116,76 +113,46 @@ class MultiHeadAttention(nn.Layer):
         self.k_proj = nn.Linear(self.kdim, embed_dim, weight_attr, bias_attr=bias_attr)
         self.v_proj = nn.Linear(self.vdim, embed_dim, weight_attr, bias_attr=bias_attr)
         self.out_proj = nn.Linear(embed_dim, embed_dim, weight_attr, bias_attr=bias_attr)
-
-    def _prepare_qkv(self, query, key, value, cache=None):
-        q = self.q_proj(query)
-        q = tensor.reshape(x=q, shape=[0, 0, self.num_heads, self.head_dim])
-        q = tensor.transpose(x=q, perm=[0, 2, 1, 3])
-        if isinstance(cache, self.StaticCache):
-            k, v = cache.k, cache.v
-        else:
-            k, v = self.compute_kv(key, value)
-        if isinstance(cache, self.Cache):
-            k = tensor.concat([cache.k, k], axis=2)
-            v = tensor.concat([cache.v, v], axis=2)
-            cache = self.Cache(k, v)
-        return (q, k, v) if cache is None else (q, k, v, cache)
-    def compute_kv(self, key, value):
-        k = self.k_proj(key)
-        v = self.v_proj(value)
-        k = tensor.reshape(x=k, shape=[0, 0, self.num_heads, self.head_dim])
-        k = tensor.transpose(x=k, perm=[0, 2, 1, 3])
-        v = tensor.reshape(x=v, shape=[0, 0, self.num_heads, self.head_dim])
-        v = tensor.transpose(x=v, perm=[0, 2, 1, 3])
-        return k, v
-
-    def gen_cache(self, key, value=None, type=None):
-        if type == MultiHeadAttention.StaticCache:  # static_kv
-            k, v = self.compute_kv(key, value)
-            return self.StaticCache(k, v)
-        elif value is None:  #
-            k = layers.fill_constant_batch_size_like(
-                input=key,
-                shape=[-1, self.num_heads, 0, self.head_dim],
-                dtype=key.dtype,
-                value=0)
-            v = layers.fill_constant_batch_size_like(
-                input=key,
-                shape=[-1, self.num_heads, 0, self.head_dim],
-                dtype=key.dtype,
-                value=0)
-            return self.Cache(k, v)
-        else:
-            return self.Cache(key, value)
-
-    def forward(self, query, key=None, value=None, attn_mask=None, cache=None):
-        key = query if key is None else key
-        value = query if value is None else value
-        if cache is None:
-            q, k, v = self._prepare_qkv(query, key, value, cache)
-        else:
-            q, k, v, cache = self._prepare_qkv(query, key, value, cache)
-        product = paddle.matmul(
-            x=q * (self.head_dim**-0.5), y=k, transpose_y=True)
-        if attn_mask is not None:
-            product = product + attn_mask
+    
+    def attention(self,q,k,v,attn_mask=0):
+        product = q @ k * self.head_dim ** -0.5 + attn_mask
         weights = F.softmax(product)
         if self.dropout:
-            weights = F.dropout(
-                weights,
-                self.dropout,
-                training=self.training,
-                mode="upscale_in_train")
-        out = tensor.matmul(weights, v)
-        out = tensor.transpose(out, perm=[0, 2, 1, 3])
-        out = tensor.reshape(x=out, shape=[0, 0, out.shape[2] * out.shape[3]])
+            weights = F.dropout(weights,self.dropout,training=self.training,mode="upscale_in_train")
+        out = (weights @ v).transpose([0, 2, 1, 3]).reshape([0, 0, -1])
         out = self.out_proj(out)
-        outs = [out]
+        return out,weights
+        
+    def forward(self, query, key, value, attn_mask= 0, cache=None):
+        q = self.q_proj(query).reshape([0, 0, self.num_heads, self.head_dim]).transpose([0, 2, 1, 3])
+        if cache is None:            
+            k = self.k_proj(key).reshape([0, 0, self.num_heads, self.head_dim]).transpose([0, 2, 3, 1])
+            v = self.v_proj(value).reshape([0, 0, self.num_heads, self.head_dim]).transpose([0, 2, 1, 3])
+            out,weights =self.attention(q,k,v,attn_mask)
+            if self.need_weights:
+                return out,weights
+            return out
+        elif isinstance(cache,list):
+            k = self.k_proj(key).reshape([0, 0, self.num_heads, self.head_dim]).transpose([0, 2, 3, 1])
+            v = self.v_proj(value).reshape([0, 0, self.num_heads, self.head_dim]).transpose([0, 2, 1, 3])
+            k = tensor.concat([cache[0],k], axis=3)
+            v = tensor.concat([cache[1],v], axis=2)
+            out,weights =self.attention(q,k,v,attn_mask)
+            if self.need_weights:
+                return [out,weights,[k,v]]
+            return [out,[k,v]]
+        out,weights =self.attention(q,cache[0],cache[1],attn_mask)
         if self.need_weights:
-            outs.append(weights)
-        if cache is not None:
-            outs.append(cache)
-        return out if len(outs) == 1 else tuple(outs)
+            return [out,weights,cache]
+        return [out,cache]
+    
+    def gen_cache(self,key,cross=True):
+        if cross:
+            k = self.k_proj(key).reshape([0, 0, self.num_heads, self.head_dim]).transpose([0, 2, 3, 1])
+            v = self.v_proj(key).reshape([0, 0, self.num_heads, self.head_dim]).transpose([0, 2, 1, 3])            
+            return (k,v)
+        return [layers.fill_constant_batch_size_like(key,[-1, self.num_heads,self.head_dim,0],key.dtype,0),
+         layers.fill_constant_batch_size_like(key,[-1, self.num_heads,0,self.head_dim],key.dtype,0)]
 
 class TransformerDecoderLayer(nn.Layer):
     def __init__(self,d_model,nhead,dim_feedforward,dropout=0.0,skdim=None,svdim=None,ckdim=None,cvdim=None,activation='ReLU',
@@ -214,43 +181,69 @@ class TransformerDecoderLayer(nn.Layer):
         self.dropout3 = nn.Dropout(dropout, mode="upscale_in_train")
         self._config.pop("self")
 
-    def forward(self, tgt, memory, tgt_mask=None, memory_mask=None, cache=None):
-        residual = tgt
+    def forward(self, tgt, memory, tgt_mask=0, memory_mask=0, cache=None):
         if self.normalize_before:
+            if cache is None:
+                residual = tgt
+                tgt = self.norm1(tgt)
+                tgt = self.self_attn(tgt, tgt, tgt, tgt_mask, None)
+                tgt = residual + self.dropout1(tgt)
+                residual = tgt
+                tgt = self.norm2(tgt)
+                tgt = self.cross_attn(tgt, memory, memory, memory_mask, None)
+                tgt = residual + self.dropout2(tgt)
+                residual = tgt
+                tgt = self.norm3(tgt)
+                tgt = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
+                tgt = residual + self.dropout3(tgt)
+                return tgt
+            residual = tgt
             tgt = self.norm1(tgt)
-        if cache is None:
-            tgt = self.self_attn(tgt, tgt, tgt, tgt_mask, None)
+            tgt,incremental_cache = self.self_attn(tgt, tgt, tgt, tgt_mask, cache[0])
+            tgt = residual + self.dropout1(tgt)
+            residual = tgt
+            tgt = self.norm2(tgt)
+            tgt,static_cache = self.cross_attn(tgt, memory, memory, memory_mask, cache[1])
+            tgt = residual + self.dropout2(tgt)
+            residual = tgt
+            tgt = self.norm3(tgt)
+            tgt = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
+            tgt = residual + self.dropout3(tgt)
+            return (tgt, (incremental_cache,static_cache))
         else:
-            tgt, incremental_cache = self.self_attn(tgt, tgt, tgt, tgt_mask, cache[0])
-        tgt = residual + self.dropout1(tgt)
-        if not self.normalize_before:
+            if cache is None:
+                residual = tgt
+                tgt = self.self_attn(tgt, tgt, tgt, tgt_mask, None)
+                tgt = residual + self.dropout1(tgt)
+                tgt = self.norm1(tgt)
+                residual = tgt
+                tgt = self.cross_attn(tgt, memory, memory, memory_mask, None)
+                tgt = residual + self.dropout2(tgt)
+                tgt = self.norm2(tgt)
+                residual = tgt
+                tgt = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
+                tgt = residual + self.dropout3(tgt)
+                tgt = self.norm3(tgt)
+                return tgt
+            residual = tgt
+            tgt,incremental_cache = self.self_attn(tgt, tgt, tgt, tgt_mask,cache[0])
+            tgt = residual + self.dropout1(tgt)
             tgt = self.norm1(tgt)
-
-        residual = tgt
-        if self.normalize_before:
+            residual = tgt
+            tgt, static_cache= self.cross_attn(tgt, memory, memory, memory_mask,cache[1])
+            tgt = residual + self.dropout2(tgt)
             tgt = self.norm2(tgt)
-        if cache is None:
-            tgt = self.cross_attn(tgt, memory, memory, memory_mask, None)
-        else:
-            tgt, static_cache = self.cross_attn(tgt, memory, memory, memory_mask, cache[1])
-        tgt = residual + self.dropout2(tgt)
-        if not self.normalize_before:
-            tgt = self.norm2(tgt)
-
-        residual = tgt
-        if self.normalize_before:
+            residual = tgt
+            tgt = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
+            tgt = residual + self.dropout3(tgt)
             tgt = self.norm3(tgt)
-        tgt = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
-        tgt = residual + self.dropout3(tgt)
-        if not self.normalize_before:
-            tgt = self.norm3(tgt)
-        return tgt if cache is None else (tgt, (incremental_cache,static_cache))
+            return (tgt, (incremental_cache,static_cache))
 
     def gen_cache(self, memory):
-        incremental_cache = self.self_attn.gen_cache(memory, type=self.self_attn.Cache)
-        static_cache = self.cross_attn.gen_cache(memory, memory, type=self.cross_attn.StaticCache)
-        return incremental_cache, static_cache
-    
+        incremental_cache = self.self_attn.gen_cache(memory, False)
+        static_cache = self.cross_attn.gen_cache(memory)
+        return incremental_cache,static_cache
+
 class TransformerDecoder(nn.Layer):
     def __init__(self,d_model, n_head, dim_feedforward, num_layers, **kwargs):
         super(TransformerDecoder, self).__init__()
@@ -263,28 +256,29 @@ class TransformerDecoder(nn.Layer):
         self.n_head= n_head
         self.d_model =d_model
 
-    def forward(self, tgt, memory, tgt_mask=None, memory_mask=None, cache=None):
-        output = tgt 
+    def forward(self, tgt, memory, tgt_mask=0, memory_mask=0, cache=None):
+        output = tgt
+        if cache is None:
+            for mod in self.layers:
+                    output = mod(output,
+                                 memory,
+                                 tgt_mask=tgt_mask,
+                                 memory_mask=memory_mask,
+                                 cache=None)                
+            if self.norm is not None:
+                 output = self.norm(output)
+            return output 
         new_caches = []
         for i, mod in enumerate(self.layers):
-            if cache is None:
-                output = mod(output,
-                             memory,
-                             tgt_mask=tgt_mask,
-                             memory_mask=memory_mask,
-                             cache=None)
-            else:
-                output, new_cache = mod(output,
-                                        memory,
-                                        tgt_mask=tgt_mask,
-                                        memory_mask=memory_mask,
-                                        cache=cache[i])
-                new_caches.append(new_cache)
-                
+            output, new_cache = mod(output,
+                                    memory,
+                                    tgt_mask=tgt_mask,
+                                    memory_mask=memory_mask,
+                                    cache=cache[i])
+            new_caches.append(new_cache)
         if self.norm is not None:
-             output = self.norm(output)
-            
-        return output if cache is None else (output, new_caches)
+            output = self.norm(output)
+        return (output, new_caches)
 
     def gen_cache(self, memory, do_zip=False):
         cache = [layer.gen_cache(memory) for layer in self.layers]
@@ -294,7 +288,7 @@ class TransformerDecoder(nn.Layer):
     
     def _mask(self,length):
         return tensor.triu((paddle.zeros((length, length), dtype=paddle.get_default_dtype()) -float('inf')),1)
-    
+
 class Image2Text(nn.Layer):
     def __init__(self,img_encoder,txt_decoder,word_emb,pos_emb,project_out,eos_id=7,dropout=0):
         super(Image2Text, self).__init__()
@@ -309,15 +303,15 @@ class Image2Text(nn.Layer):
         self.dropout= nn.Dropout(dropout)
         self.project_out = project_out
 
-    def forward(self, img, tgt,src_mask=None,tgt_mask=None, memory_mask=None):         
+    def forward(self, img, tgt,src_mask=0,tgt_mask=0, memory_mask=0):         
         memory = self.encoder(img)            
         dec_input = self.dropout(self.word_embedding(tgt) + \
-                                 self.pos_embedding(paddle.arange(tgt.shape[1]).unsqueeze(0)))
-        tgt_mask= self.decoder._mask(tgt.shape[1]) if tgt_mask is not None else None            
-        dec_output = self.decoder(dec_input,memory,tgt_mask=tgt_mask)
+                                 self.pos_embedding(paddle.arange(tgt.shape[1]).unsqueeze(0)))         
+        dec_output = self.decoder(dec_input,memory,
+                                  tgt_mask=self.decoder._mask(tgt.shape[1]) if tgt_mask else 0)
         predict = self.project_out(dec_output)
         return predict
-    
+        
 class FasterTransformer(nn.Layer):
     def __init__(self,model,
                  decoding_strategy="beam_search",
@@ -398,7 +392,6 @@ class FasterTransformer(nn.Layer):
         ids = self.decoding(enc_output, mem_seq_lens, trg_word=trg_word)
         return ids
 
-
 class TransformerDecodeCell(nn.Layer):
     def __init__(self,
                  decoder,
@@ -428,10 +421,10 @@ class TransformerDecodeCell(nn.Layer):
             word_emb = word_emb + pos_emb
             inputs = self.dropout(word_emb)
 
-            cell_outputs, new_states = self.decoder(inputs, memory, None,
+            cell_outputs, new_states = self.decoder(inputs, memory, 0,
                                                     trg_src_attn_bias, states)
         else:
-            cell_outputs, new_states = self.decoder(inputs, memory, None,
+            cell_outputs, new_states = self.decoder(inputs, memory, 0,
                                                     trg_src_attn_bias, states)
 
         if self.linear:
@@ -440,7 +433,7 @@ class TransformerDecodeCell(nn.Layer):
         new_states = [cache[0] for cache in new_states]
 
         return cell_outputs, new_states
-        
+    
 class InferTransformerModel(nn.Layer):
     def __init__(self,model,
                  beam_size=4,
@@ -504,7 +497,7 @@ class InferTransformerModel(nn.Layer):
                 inits=incremental_cache,
                 max_step_num=self.max_out_len,
                 memory=enc_output,
-                trg_src_attn_bias=None,
+                trg_src_attn_bias= 0,
                 static_cache=static_cache,
                 is_test=True,
                 output_time_major=self.output_time_major,
@@ -580,7 +573,6 @@ class InferTransformerModel(nn.Layer):
         ## init inputs for decoder, shaped `[batch_size*beam_size, ...]`
         pre_word = paddle.reshape(alive_seq[:, :, -1],
                                   [batch_size * beam_size, 1])
-        trg_src_attn_bias = None
 
         enc_output = merge_beam_dim(expand_to_beam_size(enc_output, beam_size))
 
@@ -605,18 +597,18 @@ class InferTransformerModel(nn.Layer):
             new_caches = []
             for cache in caches:
                 k = gather_2d(
-                    cache[0].k,
+                    cache[0][0],
                     topk_coordinates,
                     beam_size,
                     batch_size,
                     need_unmerge=True)
                 v = gather_2d(
-                    cache[0].v,
+                    cache[0][1],
                     topk_coordinates,
                     beam_size,
                     batch_size,
                     need_unmerge=True)
-                new_caches.append((MultiHeadAttention.Cache(k, v), cache[1]))
+                new_caches.append(([k,v], cache[1]))
             return new_caches
 
         def get_topk_coordinates(beam_idx, beam_size, batch_size,
@@ -790,7 +782,7 @@ class InferTransformerModel(nn.Layer):
             dec_input = self.dropout(trg_emb)
 
             logits, caches = self.decoder(
-                dec_input, enc_output, None, trg_src_attn_bias, caches)
+                dec_input, enc_output, 0, 0, caches)
             logits = self.project_out(logits)
             topk_seq, topk_log_probs, topk_scores, topk_finished, states = grow_topk(
                 i, logits, alive_seq, alive_log_probs, caches)
@@ -834,6 +826,7 @@ class InferTransformerModel(nn.Layer):
                     paddle.cast(
                         neg_finished_flags, dtype=alive_log_probs.dtype))
         return finished_seq, finished_scores
+
 
 # encoder = SwinTransformerEncoder(embed_dim=48,depths=[2, 2, 6, 2],num_heads=[3, 6, 12, 24],window_size=7,drop_path_rate=0.2)
 # decoder = TransformerDecoder(d_model=384,n_head=6,dim_feedforward=1536,num_layers=6)
