@@ -96,7 +96,7 @@ class WordEmbedding(nn.Layer):
             weight_attr=paddle.ParamAttr(initializer=nn.initializer.Normal(0., emb_dim**-0.5)))
     def forward(self, word):
         return self.emb_dim**0.5 * self.word_embeddings(word)
- 
+
 class MultiHeadAttention(nn.Layer):
     def __init__(self,embed_dim,num_heads,dropout=0.,kdim=None,vdim=None,need_weights=False,weight_attr=None,bias_attr=None,**kwargs):
         super(MultiHeadAttention, self).__init__()
