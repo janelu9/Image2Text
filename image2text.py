@@ -10,6 +10,7 @@ import paddle.nn.functional as F
 from vision_transformer import VisionTransformer, Identity, trunc_normal_, zeros_
 from swin_transformer import SwinTransformer
 from paddle.framework import ParamAttr
+from paddle.fluid import layers
 from paddle.nn.layer.transformer import _convert_param_attr_to_list
 from paddlenlp.ops import InferTransformerDecoding
 from paddlenlp.transformers import TransformerBeamSearchDecoder
@@ -148,9 +149,9 @@ class MultiHeadAttention(nn.Layer):
         if cross:
             k,v = self.compute_kv(key,key)       
             return (k,v)
-        return [paddle.empty([0,self.num_heads,self.head_dim,0]),paddle.empty([0,self.num_heads,0,self.head_dim])]
-#         return [layers.fill_constant_batch_size_like(key,[-1, self.num_heads,self.head_dim,0],key.dtype,0),
-#                 layers.fill_constant_batch_size_like(key,[-1, self.num_heads,0,self.head_dim],key.dtype,0)]
+#         return [paddle.empty([0,self.num_heads,self.head_dim,0]),paddle.empty([0,self.num_heads,0,self.head_dim])]
+        return [layers.fill_constant_batch_size_like(key,[-1, self.num_heads,self.head_dim,0],key.dtype,0),
+                layers.fill_constant_batch_size_like(key,[-1, self.num_heads,0,self.head_dim],key.dtype,0)]
 
 class TransformerDecoderLayer(nn.Layer):
     def __init__(self,d_model,nhead,dim_feedforward,dropout=0.0,skdim=None,svdim=None,ckdim=None,cvdim=None,activation='ReLU',
