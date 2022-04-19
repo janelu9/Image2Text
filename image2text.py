@@ -7,7 +7,6 @@
 import paddle
 import paddle.nn as nn
 import paddle.nn.functional as F
-import paddle.tensor as tensor
 from vision_transformer import VisionTransformer, Identity, trunc_normal_, zeros_
 from swin_transformer import SwinTransformer
 from paddle.framework import ParamAttr
@@ -103,7 +102,7 @@ class MultiHeadAttention(nn.Layer):
         self.kdim = kdim if kdim is not None else embed_dim
         self.vdim = vdim if vdim is not None else embed_dim
         self.num_heads = num_heads
-        self.dropout = dropout
+        self.dropout = nn.Dropout(dropout, mode="upscale_in_train")
         self.need_weights = need_weights
         self.head_dim = embed_dim // num_heads
         assert self.head_dim * num_heads == self.embed_dim, "embed_dim must be divisible by num_heads"
@@ -112,29 +111,30 @@ class MultiHeadAttention(nn.Layer):
         self.v_proj = nn.Linear(self.vdim, embed_dim, weight_attr, bias_attr=bias_attr)
         self.out_proj = nn.Linear(embed_dim, embed_dim, weight_attr, bias_attr=bias_attr)
     
+    def compute_kv(self, key, value):
+        k = paddle.transpose(paddle.reshape(self.k_proj(key), [0, 0, self.num_heads, self.head_dim]), [0, 2, 3, 1])
+        v = paddle.transpose(paddle.reshape(self.v_proj(value), [0, 0, self.num_heads, self.head_dim]), [0, 2, 1, 3])
+        return k, v    
+
     def attention(self,q,k,v,attn_mask=0):
-        product = q @ k * self.head_dim ** -0.5 + attn_mask
-        weights = F.softmax(product)
-        if self.dropout:
-            weights = F.dropout(weights,self.dropout,training=self.training,mode="upscale_in_train")
-        out = (weights @ v).transpose([0, 2, 1, 3]).reshape([0, 0, -1])
+        product = paddle.matmul(q,k) * self.head_dim ** -0.5 + attn_mask
+        weights = self.dropout(F.softmax(product))
+        out = paddle.reshape(paddle.transpose(paddle.matmul(weights,v),[0, 2, 1, 3]),[0, 0, -1])
         out = self.out_proj(out)
         return out,weights
         
     def forward(self, query, key, value, attn_mask= 0, cache=None):
-        q = self.q_proj(query).reshape([0, 0, self.num_heads, self.head_dim]).transpose([0, 2, 1, 3])
+        q =paddle.transpose(paddle.reshape(self.q_proj(query), [0, 0, self.num_heads, self.head_dim]), [0, 2, 1, 3])
         if cache is None:            
-            k = self.k_proj(key).reshape([0, 0, self.num_heads, self.head_dim]).transpose([0, 2, 3, 1])
-            v = self.v_proj(value).reshape([0, 0, self.num_heads, self.head_dim]).transpose([0, 2, 1, 3])
+            k,v = self.compute_kv(key,value)
             out,weights =self.attention(q,k,v,attn_mask)
             if self.need_weights:
                 return out,weights
             return out
         elif isinstance(cache,list):
-            k = self.k_proj(key).reshape([0, 0, self.num_heads, self.head_dim]).transpose([0, 2, 3, 1])
-            v = self.v_proj(value).reshape([0, 0, self.num_heads, self.head_dim]).transpose([0, 2, 1, 3])
-            k = tensor.concat([cache[0],k], axis=3)
-            v = tensor.concat([cache[1],v], axis=2)
+            k,v = self.compute_kv(key,value)
+            k = paddle.concat([cache[0],k], axis=3)
+            v = paddle.concat([cache[1],v], axis=2)
             out,weights =self.attention(q,k,v,attn_mask)
             if self.need_weights:
                 return [out,weights,[k,v]]
@@ -146,8 +146,7 @@ class MultiHeadAttention(nn.Layer):
     
     def gen_cache(self,key,cross=True):
         if cross:
-            k = self.k_proj(key).reshape([0, 0, self.num_heads, self.head_dim]).transpose([0, 2, 3, 1])
-            v = self.v_proj(key).reshape([0, 0, self.num_heads, self.head_dim]).transpose([0, 2, 1, 3])            
+            k,v = self.compute_kv(key,key)       
             return (k,v)
         return [paddle.empty([0,self.num_heads,self.head_dim,0]),paddle.empty([0,self.num_heads,0,self.head_dim])]
 #         return [layers.fill_constant_batch_size_like(key,[-1, self.num_heads,self.head_dim,0],key.dtype,0),
@@ -285,7 +284,7 @@ class TransformerDecoder(nn.Layer):
         return cache
     
     def _mask(self,length):
-        return tensor.triu((paddle.zeros((length, length), dtype=paddle.get_default_dtype()) -float('inf')),1)
+        return paddle.triu((paddle.zeros((length, length), dtype=paddle.get_default_dtype()) -float('inf')),1)
 
 class Image2Text(nn.Layer):
     def __init__(self,img_encoder,txt_decoder,word_emb,pos_emb,project_out,eos_id=7,dropout=0):
