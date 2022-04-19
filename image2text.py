@@ -14,7 +14,6 @@ from paddle.framework import ParamAttr
 from paddle.nn.layer.transformer import _convert_param_attr_to_list
 from paddlenlp.ops import InferTransformerDecoding
 from paddlenlp.transformers import TransformerBeamSearchDecoder
-from paddle.fluid import layers
 import numpy as np
 
 class DistilledVisionTransformer(VisionTransformer):
@@ -150,8 +149,9 @@ class MultiHeadAttention(nn.Layer):
             k = self.k_proj(key).reshape([0, 0, self.num_heads, self.head_dim]).transpose([0, 2, 3, 1])
             v = self.v_proj(key).reshape([0, 0, self.num_heads, self.head_dim]).transpose([0, 2, 1, 3])            
             return (k,v)
-        return [layers.fill_constant_batch_size_like(key,[-1, self.num_heads,self.head_dim,0],key.dtype,0),
-         layers.fill_constant_batch_size_like(key,[-1, self.num_heads,0,self.head_dim],key.dtype,0)]
+        return [paddle.empty([0,self.num_heads,self.head_dim,0]),paddle.empty([0,self.num_heads,0,self.head_dim])]
+#         return [layers.fill_constant_batch_size_like(key,[-1, self.num_heads,self.head_dim,0],key.dtype,0),
+#                 layers.fill_constant_batch_size_like(key,[-1, self.num_heads,0,self.head_dim],key.dtype,0)]
 
 class TransformerDecoderLayer(nn.Layer):
     def __init__(self,d_model,nhead,dim_feedforward,dropout=0.0,skdim=None,svdim=None,ckdim=None,cvdim=None,activation='ReLU',
@@ -524,10 +524,10 @@ class InferTransformerModel(nn.Layer):
 
 
         def expand_to_beam_size(tensor, beam_size):
-            tensor = paddle.unsqueeze(tensor, axis=1)
-            tile_dims = [1] * len(tensor.shape)
-            tile_dims[1] = beam_size
-            return paddle.tile(tensor, tile_dims)
+            tensor=tensor.unsqueeze(1)
+            shape=list(tensor.shape)
+            shape[1]=beam_size
+            return paddle.broadcast_to(tensor,shape)
 
         def merge_beam_dim(tensor):
             shape = tensor.shape
