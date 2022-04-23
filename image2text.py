@@ -828,13 +828,13 @@ class InferTransformerModel(nn.Layer):
             curr_word = curr_seqs[:,-1:]
             return curr_word,curr_seqs,curr_log_probs,states
         
-        def cond(i,curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags):
+        def given_up(i,curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags):
             max_curr_log_probs = paddle.max(curr_log_probs,1)
             min_ended_log_probs = paddle.min(ended_log_probs*ended_flags,1)
             min_ended_log_probs+= (1. - paddle.max(ended_flags, 1)) * -inf         
             return paddle.greater_than(i < max_len,paddle.all(paddle.greater_than(min_ended_log_probs,max_curr_log_probs)))
 
-        def body(i,curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags):
+        def loop(i,curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags):
             ended,curr_seqs,curr_log_probs,states =update(i,curr_word,curr_seqs,curr_log_probs,states)
             ended_seqs = paddle.concat([ended_seqs,pad],-1)
             if paddle.any(ended):
@@ -871,7 +871,7 @@ class InferTransformerModel(nn.Layer):
             ended_log_probs=curr_log_probs+(1.-ended)*-inf
             ended_flags=ended.clone()
             curr_log_probs+=ended*-inf
-        _,curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags = paddle.static.nn.while_loop(cond, body,
+        _,curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags = paddle.static.nn.while_loop(given_up, loop,
         [paddle.ones([1],"int64"),curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags])
         final_seqs,final_probs =final(ended_log_probs,ended_seqs,curr_log_probs,curr_seqs)
         return final_seqs.transpose([0, 2, 1]),final_probs
