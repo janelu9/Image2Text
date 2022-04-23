@@ -487,7 +487,7 @@ class InferTransformerModel(nn.Layer):
                  beam_size=4,
                  max_out_len=256,
                  output_time_major=False,
-                 beam_search_version='v1',
+                 beam_search_version="v1",
                  **kwargs):
         args = dict(locals())
         args.pop("self")
@@ -768,106 +768,113 @@ class InferTransformerModel(nn.Layer):
         def merge_beam_dim(tensor):
             shape = tensor.shape
             return paddle.reshape(tensor,[shape[0] * shape[1]] + list(shape[2:]))  
-
-        def gen_coordinates1D(batch_size,beam_size):
-            return paddle.reshape( paddle.tile(paddle.arange(batch_size).unsqueeze(-1)*beam_size,(1,beam_size)),[-1]) 
         
         enc_output = self.encoder(enc_input)
         batch_size = enc_output.shape[0]
         enc_output = merge_beam_dim(expand_to_beam_size(enc_output, beam_size))
         max_len = (enc_output.shape[1] + 20) if max_len is None else max_len
         inf = float(1. * 1e7)
-        cur_log_probs =paddle.tile(paddle.assign(np.array([[0.] + [-inf] * (beam_size - 1)], "float32")), [batch_size, 1])
-        cur_word = paddle.assign(np.array([[self.bos_id]]*batch_size*beam_size,"int64"))
-        batch_coordinate =gen_coordinates1D(batch_size,beam_size)
-        eos = paddle.full(shape=[batch_size,beam_size],dtype="int64",fill_value=self.eos_id)
+        curr_log_probs =paddle.tile(paddle.assign(np.array([[0.] + [-inf] * (beam_size - 1)], "float32")), [batch_size, 1])
+        curr_word = paddle.assign(np.array([[self.bos_id]]*batch_size*beam_size,"int64"))
+        batch_coordinate0 = paddle.reshape( paddle.tile(paddle.arange(batch_size).unsqueeze(-1)*beam_size,(1,beam_size+1)),[-1])
+        batch_coordinate1  = paddle.reshape( paddle.tile(paddle.arange(batch_size).unsqueeze(-1)*(beam_size+1),(1,beam_size)),[-1]) 
+        eos = paddle.full(shape=[batch_size,beam_size+1],dtype="int64",fill_value=self.eos_id)
+        pad = paddle.full(shape=[batch_size,beam_size,1],dtype="int64",fill_value=self.eos_id)
         ended_log_probs =paddle.tile(paddle.assign(np.array([[-inf] * beam_size],"float32")), [batch_size, 1])
         ended_flags = paddle.zeros_like(ended_log_probs)
         ended_seqs =paddle.tile(paddle.assign(np.array([[[self.eos_id]]],"int64")),[batch_size, beam_size, 1])        
         
-        def gen_coordinates2D(topk_beam_index,batch_size, beam_size):
-            return paddle.stack([paddle.tile(paddle.arange(batch_size).unsqueeze(-1),(1,beam_size)),topk_beam_index],2)
+        def gen_coordinates2D(topk_ids,batch_size, beam_size):
+            return paddle.stack([paddle.tile(paddle.arange(batch_size).unsqueeze(-1),(1,beam_size)),topk_ids],2)
         
-        def update(i,cur_word,cur_log_probs,states):
-            trg_pos = paddle.full(shape=paddle.shape(cur_word),dtype=cur_word.dtype,fill_value=i)
-            trg_emb = self.word_embedding(cur_word)
+        def update(i,curr_word,curr_seqs,curr_log_probs,states):
+            trg_pos = paddle.full(shape=paddle.shape(curr_word),dtype=curr_word.dtype,fill_value=i)
+            trg_emb = self.word_embedding(curr_word)
             trg_pos_emb = self.pos_embedding(trg_pos)
             trg_emb = trg_emb + trg_pos_emb
             dec_input = self.dropout(trg_emb)
             logits, states = self.decoder(dec_input, cache=states)
             log_probs = F.log_softmax(self.project_out(logits))
-            cur_log_probs =log_probs +paddle.reshape(cur_log_probs,[-1,1,1])
-            cur_log_probs = paddle.reshape(cur_log_probs, [batch_size, -1])
-            #update cur_log_probs
-            cur_log_probs, topk_ids = paddle.topk(cur_log_probs, k=beam_size)
-            #update cur_word
-            cur_word =   topk_ids % self.vocab_size
-            ended = paddle.equal(cur_word, eos)
-            cur_word = paddle.reshape(cur_word ,[-1,1])
+            curr_log_probs =log_probs +paddle.reshape(curr_log_probs,[-1,1,1])
+            curr_log_probs = paddle.reshape(curr_log_probs, [batch_size, -1])
+            #update curr_log_probs
+            curr_log_probs, topk_ids = paddle.topk(curr_log_probs, k=beam_size+1)
+            #update curr_word
+            curr_word =   topk_ids % self.vocab_size
+            ended = paddle.equal(curr_word, eos)
+            curr_word = paddle.reshape(curr_word ,[-1,1])
             beam_index = topk_ids // self.vocab_size
-            coordinates = batch_coordinate + paddle.reshape(beam_index ,[-1])
+            coordinates = batch_coordinate0 + paddle.reshape(beam_index ,[-1])
             #update states
             states = [([paddle.gather(cache[0][0],coordinates),paddle.gather(cache[0][1],coordinates)],cache[1]) for cache in states]
-            return cur_word,cur_log_probs,coordinates,ended,states
+            curr_seqs = paddle.concat([paddle.gather(curr_seqs,coordinates),curr_word],-1)
+            return ended,curr_seqs,curr_log_probs,states
 
-        def reset(ended,ended_log_probs,ended_seqs,ended_flags,cur_log_probs,cur_seqs):
-            ended=paddle.cast(ended,"float32")
-            log_probs =paddle.concat([ended_log_probs, cur_log_probs+(1.-ended)*-inf],1)
-            seqs = paddle.concat([ended_seqs, paddle.reshape(cur_seqs,ended_seqs.shape)], 1)
+        def in_the_end(ended,ended_log_probs,ended_seqs,ended_flags,curr_log_probs,curr_seqs):
+            log_probs =paddle.concat([ended_log_probs, curr_log_probs+(1.-ended)*-inf],1)
+            seqs = paddle.concat([ended_seqs, paddle.reshape(curr_seqs,[batch_size,beam_size+1,-1])], 1)
             flags = paddle.concat([ended_flags, ended], 1)
             ended_log_probs, topk_ids = paddle.topk(log_probs, k=beam_size)
             topk_coordinates = gen_coordinates2D(topk_ids, batch_size,beam_size)
             ended_seqs = paddle.gather_nd(seqs, topk_coordinates)
             ended_flags = paddle.gather_nd(flags, topk_coordinates)
-            return ended_log_probs,ended_seqs,ended_flags,ended       
+            return ended_log_probs,ended_seqs,ended_flags
         
-        def cond(i,cur_word,cur_seqs,cur_log_probs,states,ended_log_probs,ended_seqs,ended_flags):
-            max_cur_log_probs = paddle.max(cur_log_probs,1)
+        def go_on(ended,curr_seqs,curr_log_probs,states):
+            curr_log_probs,topk_ids = paddle.topk(curr_log_probs, k=beam_size)
+            coordinates = batch_coordinate1 +  paddle.reshape(topk_ids ,[-1])
+            states = [([paddle.gather(cache[0][0],coordinates),paddle.gather(cache[0][1],coordinates)],cache[1]) for cache in states]
+            curr_seqs = paddle.gather(curr_seqs, coordinates)
+            curr_word = curr_seqs[:,-1:]
+            return curr_word,curr_seqs,curr_log_probs,states
+        
+        def cond(i,curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags):
+            max_curr_log_probs = paddle.max(curr_log_probs,1)
             min_ended_log_probs = paddle.min(ended_log_probs*ended_flags,1)
             min_ended_log_probs+= (1. - paddle.max(ended_flags, 1)) * -inf         
-            return paddle.greater_than(i < max_len,paddle.all(paddle.greater_than(min_ended_log_probs,max_cur_log_probs)))
+            return paddle.greater_than(i < max_len,paddle.all(paddle.greater_than(min_ended_log_probs,max_curr_log_probs)))
 
-        def body(i,cur_word,cur_seqs,cur_log_probs,states,ended_log_probs,ended_seqs,ended_flags):
-            cur_word,cur_log_probs,coordinates,ended,states =update(i,cur_word,cur_log_probs,states)
-            cur_seqs = paddle.concat([paddle.gather(cur_seqs,coordinates),cur_word],-1)
-            ended_seqs = paddle.concat([ended_seqs,eos.unsqueeze(-1)],-1)
+        def body(i,curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags):
+            ended,curr_seqs,curr_log_probs,states =update(i,curr_word,curr_seqs,curr_log_probs,states)
+            ended_seqs = paddle.concat([ended_seqs,pad],-1)
             if paddle.any(ended):
-                ended_log_probs,ended_seqs,ended_flags,ended=reset(
-                    ended,ended_log_probs,ended_seqs,ended_flags,cur_log_probs,cur_seqs)
-            cur_log_probs+=ended*-inf
-            return i+1,cur_word,cur_seqs,cur_log_probs,states,ended_log_probs,ended_seqs,ended_flags
+                ended=paddle.cast(ended,"float32")
+                ended_log_probs,ended_seqs,ended_flags=in_the_end(
+                    ended,ended_log_probs,ended_seqs,ended_flags,curr_log_probs,curr_seqs)
+                curr_log_probs+=ended*-inf
+            curr_word,curr_seqs,curr_log_probs,states = go_on(ended,curr_seqs,curr_log_probs,states)
+            return i+1,curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags
         
-        def final(ended_log_probs,ended_seqs,cur_log_probs,cur_seqs):
-            log_probs =paddle.concat([ended_log_probs, cur_log_probs],1)
-            seqs = paddle.concat([ended_seqs, paddle.reshape(cur_seqs,ended_seqs.shape)], 1)
+        def final(ended_log_probs,ended_seqs,curr_log_probs,curr_seqs):
+            log_probs =paddle.concat([ended_log_probs, curr_log_probs],1)
+            seqs = paddle.concat([ended_seqs, paddle.reshape(curr_seqs,ended_seqs.shape)], 1)
             final_probs, topk_ids = paddle.topk(log_probs, k=beam_size)
             topk_coordinates = gen_coordinates2D(topk_ids, batch_size,beam_size)
             final_seqs = paddle.gather_nd(seqs, topk_coordinates)
             return final_seqs,final_probs
         
-        trg_pos = paddle.full(shape=paddle.shape(cur_word),dtype=cur_word.dtype,fill_value=0)
-        trg_emb = self.word_embedding(cur_word)
+        trg_pos = paddle.full(shape=paddle.shape(curr_word),dtype=curr_word.dtype,fill_value=0)
+        trg_emb = self.word_embedding(curr_word)
         trg_pos_emb = self.pos_embedding(trg_pos)
         trg_emb = trg_emb + trg_pos_emb
         dec_input = self.dropout(trg_emb)
         logits, states = self.decoder.begin(dec_input,enc_output)
         log_probs = F.log_softmax(self.project_out(logits))
-        cur_log_probs = log_probs + paddle.reshape(cur_log_probs,[-1,1,1])
-        cur_log_probs = paddle.reshape(cur_log_probs, [batch_size, -1])
-        cur_log_probs, cur_word = paddle.topk(cur_log_probs, k=beam_size)
-        ended = paddle.equal(cur_word, eos)
-        cur_word = paddle.reshape(cur_word ,[-1,1])
-        
-        cur_seqs = cur_word.clone()
+        curr_log_probs = log_probs + paddle.reshape(curr_log_probs,[-1,1,1])
+        curr_log_probs = paddle.reshape(curr_log_probs, [batch_size, -1])
+        curr_log_probs, curr_word = paddle.topk(curr_log_probs, k=beam_size)
+        ended = paddle.equal(curr_word, pad.squeeze(-1))
+        curr_word = paddle.reshape(curr_word ,[-1,1])
+        curr_seqs = curr_word.clone()
         if paddle.any(ended):
             ended=paddle.cast(ended,"float32")
-            ended_log_probs=cur_log_probs+(1.-ended)*-inf
+            ended_log_probs=curr_log_probs+(1.-ended)*-inf
             ended_flags=ended.clone()
-        cur_log_probs+=ended*-inf
-        _,cur_word,cur_seqs,cur_log_probs,states,ended_log_probs,ended_seqs,ended_flags = paddle.static.nn.while_loop(cond, body,
-        [paddle.ones([1],"int64"),cur_word,cur_seqs,cur_log_probs,states,ended_log_probs,ended_seqs,ended_flags])
-        final_seqs,final_probs =final(ended_log_probs,ended_seqs,cur_log_probs,cur_seqs)
-        return final_seqs.transpose([0, 2, 1]),final_probs.transpose([0, 2, 1])
+            curr_log_probs+=ended*-inf
+        _,curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags = paddle.static.nn.while_loop(cond, body,
+        [paddle.ones([1],"int64"),curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags])
+        final_seqs,final_probs =final(ended_log_probs,ended_seqs,curr_log_probs,curr_seqs)
+        return final_seqs.transpose([0, 2, 1]),final_probs
 
 # encoder = SwinTransformerEncoder(embed_dim=48,depths=[2, 2, 6, 2],num_heads=[3, 6, 12, 24],window_size=7,drop_path_rate=0.2)
 # decoder = TransformerDecoder(d_model=384,n_head=6,dim_feedforward=1536,num_layers=6)
