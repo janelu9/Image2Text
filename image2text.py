@@ -829,7 +829,7 @@ class InferTransformerModel(nn.Layer):
             return curr_word,curr_seqs,curr_log_probs,states
         
         def given_up(i,curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags):
-            max_curr_log_probs = paddle.max(curr_log_probs,1)
+            max_curr_log_probs = curr_log_probs[:,0]
             min_ended_log_probs = paddle.min(ended_log_probs*ended_flags,1)
             min_ended_log_probs+= (1. - paddle.max(ended_flags, 1)) * -inf         
             return paddle.greater_than(i < max_len,paddle.all(paddle.greater_than(min_ended_log_probs,max_curr_log_probs)))
