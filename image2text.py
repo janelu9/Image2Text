@@ -149,10 +149,19 @@ class MultiHeadAttention(nn.Layer):
         if cross:
             k,v = self.compute_kv(key,key)       
             return (k,v)
-#         return [paddle.empty([0,self.num_heads,self.head_dim,0]),paddle.empty([0,self.num_heads,0,self.head_dim])]
+#       return [paddle.empty([shape[0],self.num_heads,self.head_dim,0]),paddle.empty([shape[0],self.num_heads,0,self.head_dim])]
         return [layers.fill_constant_batch_size_like(key,[-1, self.num_heads,self.head_dim,0],key.dtype,0),
                 layers.fill_constant_batch_size_like(key,[-1, self.num_heads,0,self.head_dim],key.dtype,0)]
 
+    def begin(self,query, key, value, attn_mask= 0,cross=False):
+        q =paddle.transpose(paddle.reshape(self.q_proj(query), [0, 0, self.num_heads, self.head_dim]), [0, 2, 1, 3])
+        k,v = self.compute_kv(key,value)
+        out,weights =self.attention(q,k,v,attn_mask)
+        if cross:
+            return [out,(k,v)]
+        return [out,[k,v]]
+    
+    
 class TransformerDecoderLayer(nn.Layer):
     def __init__(self,d_model,nhead,dim_feedforward,dropout=0.0,skdim=None,svdim=None,ckdim=None,cvdim=None,activation='ReLU',
                  attn_dropout=None,act_dropout=None,normalize_before=True,weight_attr=None,bias_attr=None,**kwargs):
@@ -241,6 +250,35 @@ class TransformerDecoderLayer(nn.Layer):
         incremental_cache = self.self_attn.gen_cache(memory, False)
         static_cache = self.cross_attn.gen_cache(memory)
         return incremental_cache,static_cache
+    
+    def begin(self,tgt,memory,tgt_mask=0, memory_mask=0):
+        if self.normalize_before:
+            residual = tgt
+            tgt = self.norm1(tgt)
+            tgt,incremental_cache = self.self_attn.begin(tgt, tgt, tgt, tgt_mask)
+            tgt = residual + self.dropout1(tgt)
+            residual = tgt
+            tgt = self.norm2(tgt)
+            tgt,static_cache = self.cross_attn.begin(tgt, memory, memory, memory_mask,True)
+            tgt = residual + self.dropout2(tgt)
+            residual = tgt
+            tgt = self.norm3(tgt)
+            tgt = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
+            tgt = residual + self.dropout3(tgt)
+            return (tgt, (incremental_cache,static_cache))
+        residual = tgt
+        tgt,incremental_cache = self.self_attn.begin(tgt, tgt, tgt, tgt_mask)
+        tgt = residual + self.dropout1(tgt)
+        tgt = self.norm1(tgt)
+        residual = tgt
+        tgt, static_cache= self.cross_attn.begin(tgt, memory, memory, memory_mask,True)
+        tgt = residual + self.dropout2(tgt)
+        tgt = self.norm2(tgt)
+        residual = tgt
+        tgt = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
+        tgt = residual + self.dropout3(tgt)
+        tgt = self.norm3(tgt)
+        return (tgt, (incremental_cache,static_cache))
 
 class TransformerDecoder(nn.Layer):
     def __init__(self,d_model, n_head, dim_feedforward, num_layers, **kwargs):
@@ -254,7 +292,7 @@ class TransformerDecoder(nn.Layer):
         self.n_head= n_head
         self.d_model =d_model
 
-    def forward(self, tgt, memory, tgt_mask=0, memory_mask=0, cache=None):
+    def forward(self, tgt, memory = None, tgt_mask=0, memory_mask=0, cache=None):
         output = tgt
         if cache is None:
             for mod in self.layers:
@@ -286,6 +324,19 @@ class TransformerDecoder(nn.Layer):
     
     def _mask(self,length):
         return paddle.triu((paddle.zeros((length, length), dtype=paddle.get_default_dtype()) -float('inf')),1)
+    
+    def begin(self,tgt,memory,tgt_mask=0, memory_mask=0):
+        output = tgt
+        new_caches = []
+        for i, mod in enumerate(self.layers):
+            output, new_cache = mod.begin(output,
+                                    memory,
+                                    tgt_mask=tgt_mask,
+                                    memory_mask=memory_mask)
+            new_caches.append(new_cache)
+        if self.norm is not None:
+            output = self.norm(output)
+        return (output, new_caches)
 
 class Image2Text(nn.Layer):
     def __init__(self,img_encoder,txt_decoder,word_emb,pos_emb,project_out,eos_id=7,dropout=0):
@@ -513,6 +564,8 @@ class InferTransformerModel(nn.Layer):
                 finished_seq = finished_seq.transpose([0, 2, 1])
 
             return finished_seq,finished_scores
+        else:
+            return self.beam_search_custom(enc_input, self.beam_size, self.max_out_len)
 
     def beam_search_v2(self,
                        enc_input,
@@ -586,7 +639,7 @@ class InferTransformerModel(nn.Layer):
         def grow_topk(i, logits, alive_seq, alive_log_probs, states):
 
             logits = paddle.reshape(logits, [batch_size, beam_size, -1])
-            log_probs = paddle.add( paddle.log(F.softmax(logits, axis=2)),alive_log_probs.unsqueeze(-1))
+            log_probs =  paddle.log(F.softmax(logits, axis=2)) + alive_log_probs.unsqueeze(-1)
 
             # Length penalty is given by = (5+len(decode)/6) ^ -\alpha. Pls refer to
             # https://arxiv.org/abs/1609.08144.
@@ -700,7 +753,121 @@ class InferTransformerModel(nn.Layer):
         finished_scores = paddle.multiply(finished_scores,paddle.cast(finished_flags, dtype=finished_scores.dtype)) \
                         + paddle.multiply(alive_log_probs, paddle.cast(neg_finished_flags, dtype=alive_log_probs.dtype))
         return finished_seq, finished_scores
+    
+    def beam_search_custom(self,
+                           enc_input,
+                           beam_size=4,
+                           max_len=None):
 
+        def expand_to_beam_size(tensor, beam_size):
+            tensor=tensor.unsqueeze(1)
+            shape=list(tensor.shape)
+            shape[1]=beam_size
+            return paddle.broadcast_to(tensor,shape)
+        
+        def merge_beam_dim(tensor):
+            shape = tensor.shape
+            return paddle.reshape(tensor,[shape[0] * shape[1]] + list(shape[2:]))  
+
+        def gen_coordinates1D(batch_size,beam_size):
+            return paddle.reshape( paddle.tile(paddle.arange(batch_size).unsqueeze(-1)*beam_size,(1,beam_size)),[-1]) 
+        
+        enc_output = self.encoder(enc_input)
+        batch_size = enc_output.shape[0]
+        enc_output = merge_beam_dim(expand_to_beam_size(enc_output, beam_size))
+        max_len = (enc_output.shape[1] + 20) if max_len is None else max_len
+        inf = float(1. * 1e7)
+        cur_log_probs =paddle.tile(paddle.assign(np.array([[0.] + [-inf] * (beam_size - 1)], "float32")), [batch_size, 1])
+        cur_word = paddle.assign(np.array([[self.bos_id]]*batch_size*beam_size,"int64"))
+        batch_coordinate =gen_coordinates1D(batch_size,beam_size)
+        eos = paddle.full(shape=[batch_size,beam_size],dtype="int64",fill_value=self.eos_id)
+        ended_log_probs =paddle.tile(paddle.assign(np.array([[-inf] * beam_size],"float32")), [batch_size, 1])
+        ended_flags = paddle.zeros_like(ended_log_probs)
+        ended_seqs =paddle.tile(paddle.assign(np.array([[[self.eos_id]]],"int64")),[batch_size, beam_size, 1])        
+        
+        def gen_coordinates2D(topk_beam_index,batch_size, beam_size):
+            return paddle.stack([paddle.tile(paddle.arange(batch_size).unsqueeze(-1),(1,beam_size)),topk_beam_index],2)
+        
+        def update(i,cur_word,cur_log_probs,states):
+            trg_pos = paddle.full(shape=paddle.shape(cur_word),dtype=cur_word.dtype,fill_value=i)
+            trg_emb = self.word_embedding(cur_word)
+            trg_pos_emb = self.pos_embedding(trg_pos)
+            trg_emb = trg_emb + trg_pos_emb
+            dec_input = self.dropout(trg_emb)
+            logits, states = self.decoder(dec_input, cache=states)
+            log_probs = F.log_softmax(self.project_out(logits))
+            cur_log_probs =log_probs +paddle.reshape(cur_log_probs,[-1,1,1])
+            cur_log_probs = paddle.reshape(cur_log_probs, [batch_size, -1])
+            #update cur_log_probs
+            cur_log_probs, topk_ids = paddle.topk(cur_log_probs, k=beam_size)
+            #update cur_word
+            cur_word =   topk_ids % self.vocab_size
+            ended = paddle.equal(cur_word, eos)
+            cur_word = paddle.reshape(cur_word ,[-1,1])
+            beam_index = topk_ids // self.vocab_size
+            coordinates = batch_coordinate + paddle.reshape(beam_index ,[-1])
+            #update states
+            states = [([paddle.gather(cache[0][0],coordinates),paddle.gather(cache[0][1],coordinates)],cache[1]) for cache in states]
+            return cur_word,cur_log_probs,coordinates,ended,states
+
+        def reset(ended,ended_log_probs,ended_seqs,ended_flags,cur_log_probs,cur_seqs):
+            ended=paddle.cast(ended,"float32")
+            log_probs =paddle.concat([ended_log_probs, cur_log_probs+(1.-ended)*-inf],1)
+            seqs = paddle.concat([ended_seqs, paddle.reshape(cur_seqs,ended_seqs.shape)], 1)
+            flags = paddle.concat([ended_flags, ended], 1)
+            ended_log_probs, topk_ids = paddle.topk(log_probs, k=beam_size)
+            topk_coordinates = gen_coordinates2D(topk_ids, batch_size,beam_size)
+            ended_seqs = paddle.gather_nd(seqs, topk_coordinates)
+            ended_flags = paddle.gather_nd(flags, topk_coordinates)
+            return ended_log_probs,ended_seqs,ended_flags,ended       
+        
+        def cond(i,cur_word,cur_seqs,cur_log_probs,states,ended_log_probs,ended_seqs,ended_flags):
+            max_cur_log_probs = paddle.max(cur_log_probs,1)
+            min_ended_log_probs = paddle.min(ended_log_probs*ended_flags,1)
+            min_ended_log_probs+= (1. - paddle.max(ended_flags, 1)) * -inf         
+            return paddle.greater_than(i < max_len,paddle.all(paddle.greater_than(min_ended_log_probs,max_cur_log_probs)))
+
+        def body(i,cur_word,cur_seqs,cur_log_probs,states,ended_log_probs,ended_seqs,ended_flags):
+            cur_word,cur_log_probs,coordinates,ended,states =update(i,cur_word,cur_log_probs,states)
+            cur_seqs = paddle.concat([paddle.gather(cur_seqs,coordinates),cur_word],-1)
+            ended_seqs = paddle.concat([ended_seqs,eos.unsqueeze(-1)],-1)
+            if paddle.any(ended):
+                ended_log_probs,ended_seqs,ended_flags,ended=reset(
+                    ended,ended_log_probs,ended_seqs,ended_flags,cur_log_probs,cur_seqs)
+            cur_log_probs+=ended*-inf
+            return i+1,cur_word,cur_seqs,cur_log_probs,states,ended_log_probs,ended_seqs,ended_flags
+        
+        def final(ended_log_probs,ended_seqs,cur_log_probs,cur_seqs):
+            log_probs =paddle.concat([ended_log_probs, cur_log_probs],1)
+            seqs = paddle.concat([ended_seqs, paddle.reshape(cur_seqs,ended_seqs.shape)], 1)
+            final_probs, topk_ids = paddle.topk(log_probs, k=beam_size)
+            topk_coordinates = gen_coordinates2D(topk_ids, batch_size,beam_size)
+            final_seqs = paddle.gather_nd(seqs, topk_coordinates)
+            return final_seqs,final_probs
+        
+        trg_pos = paddle.full(shape=paddle.shape(cur_word),dtype=cur_word.dtype,fill_value=0)
+        trg_emb = self.word_embedding(cur_word)
+        trg_pos_emb = self.pos_embedding(trg_pos)
+        trg_emb = trg_emb + trg_pos_emb
+        dec_input = self.dropout(trg_emb)
+        logits, states = self.decoder.begin(dec_input,enc_output)
+        log_probs = F.log_softmax(self.project_out(logits))
+        cur_log_probs = log_probs + paddle.reshape(cur_log_probs,[-1,1,1])
+        cur_log_probs = paddle.reshape(cur_log_probs, [batch_size, -1])
+        cur_log_probs, cur_word = paddle.topk(cur_log_probs, k=beam_size)
+        ended = paddle.equal(cur_word, eos)
+        cur_word = paddle.reshape(cur_word ,[-1,1])
+        
+        cur_seqs = cur_word.clone()
+        if paddle.any(ended):
+            ended=paddle.cast(ended,"float32")
+            ended_log_probs=cur_log_probs+(1.-ended)*-inf
+            ended_flags=ended.clone()
+        cur_log_probs+=ended*-inf
+        _,cur_word,cur_seqs,cur_log_probs,states,ended_log_probs,ended_seqs,ended_flags = paddle.static.nn.while_loop(cond, body,
+        [paddle.ones([1],"int64"),cur_word,cur_seqs,cur_log_probs,states,ended_log_probs,ended_seqs,ended_flags])
+        return final(ended_log_probs,ended_seqs,cur_log_probs,cur_seqs)
+        
 
 # encoder = SwinTransformerEncoder(embed_dim=48,depths=[2, 2, 6, 2],num_heads=[3, 6, 12, 24],window_size=7,drop_path_rate=0.2)
 # decoder = TransformerDecoder(d_model=384,n_head=6,dim_feedforward=1536,num_layers=6)
