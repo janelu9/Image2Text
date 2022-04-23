@@ -866,8 +866,8 @@ class InferTransformerModel(nn.Layer):
         cur_log_probs+=ended*-inf
         _,cur_word,cur_seqs,cur_log_probs,states,ended_log_probs,ended_seqs,ended_flags = paddle.static.nn.while_loop(cond, body,
         [paddle.ones([1],"int64"),cur_word,cur_seqs,cur_log_probs,states,ended_log_probs,ended_seqs,ended_flags])
-        return final(ended_log_probs,ended_seqs,cur_log_probs,cur_seqs)
-        
+        final_seqs,final_probs =final(ended_log_probs,ended_seqs,cur_log_probs,cur_seqs)
+        return final_seqs.transpose([0, 2, 1]),final_probs.transpose([0, 2, 1])
 
 # encoder = SwinTransformerEncoder(embed_dim=48,depths=[2, 2, 6, 2],num_heads=[3, 6, 12, 24],window_size=7,drop_path_rate=0.2)
 # decoder = TransformerDecoder(d_model=384,n_head=6,dim_feedforward=1536,num_layers=6)
