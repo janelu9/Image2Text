@@ -170,7 +170,7 @@ def train(args):
                         test_right,_ = metric(predicts,data['label'],tokenizer)
                         TR+=test_right
                 cur_test_acc=TR/len(test_dataset)
-                print("epoch: {}, batch_id: {}, test_acc : {}, cost_time: {}s".format(epoch, batch_id, cur_test_acc,(time()-st)/1000)
+                print("epoch: {}, batch_id: {}, test_acc : {}, cost_time: {}s".format(epoch, batch_id, cur_test_acc,(time()-st)/1000))
                 model.train()
                 if cur_test_acc>test_acc:
                     test_acc = cur_test_acc
