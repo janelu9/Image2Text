@@ -18,6 +18,8 @@ An image to text model base on transformer which can also be used on OCR task.
   ```shell
   pip install attrdict pyyaml paddlenlp
   ```
+* 对于图灵架构GPU(CUDA版本为10.1)也可以通过docker镜像来安装paddle运行环境
+ ``` docker pull registry.cn-shanghai.aliyuncs.com/janelu9/dl:paddle2.2.2-cuda10.1-cudnn8-devel-ubuntu18.04```
   
  ## 模型说明
  
