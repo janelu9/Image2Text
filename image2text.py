@@ -12,8 +12,8 @@ from swin_transformer import SwinTransformer
 from paddle.framework import ParamAttr
 from paddle.fluid import layers
 from paddle.nn.layer.transformer import _convert_param_attr_to_list
-#from paddlenlp.ops import InferTransformerDecoding
-#from paddlenlp.transformers import TransformerBeamSearchDecoder
+from paddlenlp.ops import InferTransformerDecoding
+from paddlenlp.transformers import TransformerBeamSearchDecoder
 import numpy as np
 
 class DistilledVisionTransformer(VisionTransformer):
