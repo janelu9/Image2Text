@@ -64,7 +64,7 @@ class Sharpness:
         return Enhancer.enhance(uniform(self.a,self.b))
         
 class GaussianBlur:
-    def __init__(self, p=2.5):
+    def __init__(self, p=1.5):
         self.p = p
     def __call__(self, image):
         return image.filter(ImageFilter.GaussianBlur(uniform()*self.p))
@@ -130,7 +130,9 @@ class image_process:
         for f,w in self.aug:
             if random()<w:
                 img=f(img)
-        return self.infer_process(img)
+        return img
     
     def __call__(self,img):
-        return self.aug_process(img) if self.aug_flag else self.infer_process(img)
+        if self.aug_flag :
+            img = self.aug_process(img)
+        return  self.infer_process(img)
