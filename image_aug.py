@@ -37,7 +37,7 @@ class Bright:
         self.b = b
     def __call__(self, image):
         Enhancer = ImageEnhance.Brightness(image)
-        return Enhancer.enhance(uniform(0.5,self.b))
+        return Enhancer.enhance(uniform(self.a,self.b))
         
 class Contrast:
     def __init__(self,a=0.3, b=1.3):
@@ -45,7 +45,7 @@ class Contrast:
         self.b = b
     def __call__(self, image):
         Enhancer = ImageEnhance.Contrast(image)
-        return Enhancer.enhance(uniform(0.3,self.b))
+        return Enhancer.enhance(uniform(self.a,self.b))
         
 class Color:
     def __init__(self,a=0.3, b=3):
@@ -53,7 +53,7 @@ class Color:
         self.b = b
     def __call__(self, image):
         Enhancer = ImageEnhance.Color(image)
-        return Enhancer.enhance(uniform(0.3,self.b))
+        return Enhancer.enhance(uniform(self.a,self.b))
         
 class Sharpness:
     def __init__(self,a=0, b=5):
@@ -61,7 +61,7 @@ class Sharpness:
         self.b = b
     def __call__(self, image):
         Enhancer = ImageEnhance.Sharpness(image)
-        return Enhancer.enhance(uniform(0.,self.b))
+        return Enhancer.enhance(uniform(self.a,self.b))
         
 class GaussianBlur:
     def __init__(self, p=2.5):
