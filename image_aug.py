@@ -4,14 +4,14 @@
 # @author: Lu Jian
 # Email:janelu@live.cn; lujian@sdc.icbc.com.cn
 
-from PIL import Image, ImageFilter
+from PIL import Image, ImageFilter, ImageEnhance
 import numpy as np
 from numpy.random import uniform,random
 
 np.random.seed(2022)
 
 class RandomPad:
-    def __init__(self,LR=20,UL=20,w=0.5):
+    def __init__(self,LR=15,UL=15,w=0.5):
         self.LR=LR
         self.UL=UL
         self.w=w
@@ -31,6 +31,38 @@ class RandomPad:
             img_arr = np.concatenate([img_arr,np.tile(right,(1,int(uniform()*self.LR),1))],1)
         return  Image.fromarray(img_arr)
 
+class Bright:
+    def __init__(self, a=0.5,b=1.5):
+        self.a = a
+        self.b = b
+    def __call__(self, image):
+        Enhancer = ImageEnhance.Brightness(image)
+        return Enhancer.enhance(uniform(0.5,self.b))
+        
+class Contrast:
+    def __init__(self,a=0.3, b=1.3):
+        self.a = a
+        self.b = b
+    def __call__(self, image):
+        Enhancer = ImageEnhance.Contrast(image)
+        return Enhancer.enhance(uniform(0.3,self.b))
+        
+class Color:
+    def __init__(self,a=0.3, b=3):
+        self.a = a
+        self.b = b
+    def __call__(self, image):
+        Enhancer = ImageEnhance.Color(image)
+        return Enhancer.enhance(uniform(0.3,self.b))
+        
+class Sharpness:
+    def __init__(self,a=0, b=5):
+        self.a = a
+        self.b = b
+    def __call__(self, image):
+        Enhancer = ImageEnhance.Sharpness(image)
+        return Enhancer.enhance(uniform(0.,self.b))
+        
 class GaussianBlur:
     def __init__(self, p=2.5):
         self.p = p
@@ -80,10 +112,14 @@ class image_process:
         if self.aug_flag:
             self.aug=(
                 (RandomPad(),0.8),
+                (Bright(),0.3)
+                (Contrast(),0.3)
+                (Sharpness(),0.3)
+                (Color(),0.3)
                 (GaussianBlur(),0.5),
-                (MinFilter(),0.3),
-                (MaxFilter(),0.5),
-                (Rotate(),0.8),
+                (MinFilter(),0.2),
+                (MaxFilter(),0.3),
+                (Rotate(),0.5),
             )
     def infer_process(self,img):
         img=self.resize(img)
