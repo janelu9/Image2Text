@@ -112,10 +112,10 @@ class image_process:
         if self.aug_flag:
             self.aug=(
                 (RandomPad(),0.8),
-                (Bright(),0.3)
-                (Contrast(),0.3)
-                (Sharpness(),0.3)
-                (Color(),0.3)
+                (Bright(),0.3),
+                (Contrast(),0.3),
+                (Sharpness(),0.3),
+                (Color(),0.3),
                 (GaussianBlur(),0.5),
                 (MinFilter(),0.2),
                 (MaxFilter(),0.3),
