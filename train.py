@@ -152,7 +152,7 @@ def train(args):
             if (batch_id) % log_period == 0:
                 cur_train_period_acc = R/S
                 print("epoch: {}, batch_id: {}, loss: {}, lr: {}, acc: {}, fps:{}".\
-                format(epoch, batch_id, L/log_period,scheduler.get_lr() ,cur_train_period_acc,S/(time()-st)*1000))
+                format(epoch, batch_id, L/log_period,scheduler.get_lr() ,cur_train_period_acc,S/(time()-st)))
                 R=S=L=0
                 train_acc=max(cur_train_period_acc,train_acc)
                 st=time()
@@ -170,7 +170,7 @@ def train(args):
                         test_right,_ = metric(predicts,data['label'],tokenizer)
                         TR+=test_right
                 cur_test_acc=TR/len(test_dataset)
-                print("epoch: {}, batch_id: {}, test_acc : {}, cost_time: {}s".format(epoch, batch_id, cur_test_acc,(time()-st)/1000))
+                print("epoch: {}, batch_id: {}, test_acc : {}, cost_time: {}s".format(epoch, batch_id, cur_test_acc,(time()-st)))
                 model.train()
                 if cur_test_acc>test_acc:
                     test_acc = cur_test_acc
