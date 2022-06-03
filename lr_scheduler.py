@@ -20,5 +20,5 @@ class InverseSqrt(LRScheduler):
 
     def get_lr(self):
         if self.last_epoch <self.warmup_updates:
-            return self.base_lr + self.lr_step
+            return self.base_lr + self.lr_step*self.last_epoch
         return self.decay_factor * self.last_epoch**-0.5
