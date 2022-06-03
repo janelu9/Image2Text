@@ -122,7 +122,7 @@ def train(args):
                 elif t== tokenizer.eos_token_id:
                     break
             p=tokenizer.convert_ids_to_string(p)
-            l=tokenizer.convert_ids_to_string([int(j) for j in label[i][:e[i]-1]])
+            l=tokenizer.convert_ids_to_string([int(j) for j in label[i][:e[i]]])
             if p==l:
                 right+=1
         return right,m
