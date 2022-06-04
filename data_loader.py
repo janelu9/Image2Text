@@ -49,9 +49,9 @@ class SimpleDataSet(Dataset):
         max_len = max(len(i["ids"]) for i in x)
         for item in x:
             d['img'].append(item['img'])
-            temp_id=item['ids']+[self.eos_id]+[self.pad_id]*(max_len-len(item['ids']))
-            d['tgt'].append([self.bos_id]+temp_id)
-            d['label'].append(temp_id+[self.pad_id])
+            pad_id=[self.pad_id]*(max_len-len(item['ids']))
+            d['tgt'].append([self.bos_id]+item['ids']+pad_id)
+            d['label'].append(item['ids']+[self.eos_id]+pad_id)
         d['img']=self.image_process.normalize(np.array(d['img'])).transpose(0,3,1,2)
         d['tgt']=np.array(d['tgt'])
         d['label']=np.array(d['label'])
