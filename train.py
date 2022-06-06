@@ -49,7 +49,7 @@ def train(args):
     train_loader = DataLoader(
         dataset=train_dataset,
         shuffle=True, 
-        batch_size=8,
+        batch_size=16,
         drop_last=False,
         places=device,
         num_workers=2,
@@ -60,7 +60,7 @@ def train(args):
     test_loader = DataLoader(
         dataset=test_dataset,
         shuffle=False, 
-        batch_size=2,
+        batch_size=16,
         drop_last=False,
         places=device,
         num_workers=2,
@@ -68,10 +68,10 @@ def train(args):
         collate_fn = test_dataset.collate_fn,
         use_shared_memory=True)
         
-    encoder = SwinTransformerEncoder(img_size=224,embed_dim=48,depths=[2, 2, 6, 2],num_heads=[3, 6, 12, 24],window_size=7,drop_path_rate=0.2)
-    decoder = TransformerDecoder(d_model=384,n_head=6,dim_feedforward=1536,num_layers=6)
+    encoder = SwinTransformerEncoder(img_size=224,embed_dim=96,depths=[2, 2, 6, 2],num_heads=[3, 6, 12, 24],window_size=7,drop_path_rate=0.2)
+    decoder = TransformerDecoder(d_model=768,n_head=6,dim_feedforward=768*4,num_layers=6)
     word_emb = WordEmbedding(vocab_size=tokenizer.vocab_size,emb_dim=decoder.d_model,pad_id=train_dataset.pad_id)
-    pos_emb = PositionalEmbedding(decoder.d_model,max_length=512,learned=True)
+    pos_emb = PositionalEmbedding(decoder.d_model,max_length=32,learned=True)
     project_out = nn.Linear(decoder.d_model, word_emb.vocab_size)
     
     def load_pretrained_params(path):
@@ -95,14 +95,14 @@ def train(args):
     model=Image2Text(encoder,decoder,word_emb,pos_emb,project_out,train_dataset.eos_id)
     try:
         fast = True
-        infer = FasterTransformer(model,max_out_len=70)
+        infer = FasterTransformer(model,max_out_len=32)
     except:
         fast = False
-        infer = InferTransformerModel(model,max_out_len=70)    
+        infer = InferTransformerModel(model,max_out_len=32,beam_search_version="custom")    
     model = paddle.DataParallel(model)
     model.train()
     scheduler = paddle.optimizer.lr.NoamDecay(d_model=decoder.d_model, warmup_steps=500, verbose=False)
-    adam = paddle.optimizer.Adam(parameters=model.parameters(),learning_rate=scheduler,weight_decay= 0.0001)
+    opt = paddle.optimizer.Adam(parameters=model.parameters(),learning_rate=scheduler,weight_decay= 0.0001)
     
     def metric(pred,label,tokenizer):
         if len(pred.shape)==3:
@@ -141,8 +141,8 @@ def train(args):
             loss = paddle.nn.functional.cross_entropy(predicts, data['label'])
             right,samples = metric(predicts,data['label'],tokenizer)
             loss.backward()
-            adam.step()
-            adam.clear_grad()
+            opt.step()
+            opt.clear_grad()
             scheduler.step()
             
             batch_id+=1
