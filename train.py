@@ -49,7 +49,7 @@ def train(args):
     train_loader = DataLoader(
         dataset=train_dataset,
         shuffle=True, 
-        batch_size=16,
+        batch_size=32,
         drop_last=False,
         places=device,
         num_workers=2,
@@ -68,7 +68,7 @@ def train(args):
         collate_fn = test_dataset.collate_fn,
         use_shared_memory=True)
         
-    encoder = SwinTransformerEncoder(img_size=224,embed_dim=96,depths=[2, 2, 6, 2],num_heads=[3, 6, 12, 24],window_size=7,drop_path_rate=0.2)
+    encoder = SwinTransformerEncoder(img_size=224,embed_dim=96,depths=[2, 2, 18, 2],num_heads=[3, 6, 12, 24],window_size=7,drop_path_rate=0.1)
     decoder = TransformerDecoder(d_model=768,n_head=6,dim_feedforward=768*4,num_layers=6)
     word_emb = WordEmbedding(vocab_size=tokenizer.vocab_size,emb_dim=decoder.d_model,pad_id=train_dataset.pad_id)
     pos_emb = PositionalEmbedding(decoder.d_model,max_length=32,learned=True)
@@ -175,8 +175,8 @@ def train(args):
                 if cur_test_acc>test_acc:
                     test_acc = cur_test_acc
                     train_acc=1
-                    print("save model's params to ./best_model.pdparams")
                     paddle.save(model.state_dict(),"./best_model.pdparams")
+                    print("save model's params to ./best_model.pdparams")
                 st=time()     
 if __name__ == '__main__':
     args = parse_args()
