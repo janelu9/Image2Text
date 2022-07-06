@@ -2,7 +2,7 @@
 # coding: utf-8
 # Created on Mon Apr 11 16:55:39 2022
 # @author: Lu Jian
-# Email:janelu@live.cn; lujian@sdc.icbc.com.cn
+# Email:janelu@live.cn;
 
 from PIL import Image, ImageFilter, ImageEnhance
 import numpy as np
