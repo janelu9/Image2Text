@@ -8,7 +8,7 @@ from data_loader import SimpleDataSet
 from image_aug import image_process
 import paddle
 import paddle.nn as nn
-from paddle.io import DataLoader
+from paddle.io import DataLoader,DistributedBatchSampler
 from paddlenlp.transformers import GPTChineseTokenizer
 import paddle.distributed as dist
 import os
@@ -46,13 +46,12 @@ def train(args):
     tokenizer = GPTChineseTokenizer("gpt-cpm-cn-sentencepiece.model")    
     train_dataset=SimpleDataSet(args.data_dir,args.train_list,image_process(224),tokenizer)
     test_dataset=SimpleDataSet(args.data_dir,args.test_list,image_process(224,False),tokenizer)
+    sampler = DistributedBatchSampler(train_dataset, batch_size=32,shuffle=True,drop_last=False)
     train_loader = DataLoader(
         dataset=train_dataset,
-        shuffle=True, 
-        batch_size=32,
-        drop_last=False,
+        batch_sampler =sampler,
         places=device,
-        num_workers=2,
+        num_workers=4,
         return_list=True,
         collate_fn = train_dataset.collate_fn,
         use_shared_memory=True)
