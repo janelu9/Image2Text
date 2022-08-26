@@ -795,7 +795,8 @@ class InferTransformerModel(nn.Layer):
             dec_input = self.dropout(trg_emb)
             logits, states = self.decoder(dec_input, cache=states)
             log_probs = F.log_softmax(self.project_out(logits))
-            curr_log_probs =log_probs +paddle.reshape(curr_log_probs,[-1,1,1])
+            curr_log_probs =(log_probs +paddle.reshape(curr_log_probs*(paddle.log(i*1.)+1),[-1,1,1]))\
+                                                                     /(paddle.log(i+1.)+1)
             curr_log_probs = paddle.reshape(curr_log_probs, [batch_size, -1])
             curr_log_probs, topk_ids = paddle.topk(curr_log_probs, k=beam_size+1)
             curr_word =   topk_ids % self.vocab_size
