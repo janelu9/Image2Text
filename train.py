@@ -38,12 +38,28 @@ def parse_args():
                         help="test data dir")                         
     return parser.parse_args()
 
+class ocr_token:
+    def __init__(self,keys_path):
+        super().__init__()
+        with open(keys_path) as f :keys=f.read().splitlines()
+        self.string2id={"":0,"BOS":1,"EOS":2}
+        self.string2id.update({k:i+3 for i,k in enumerate(keys)})
+        self.id2string={i:k for k,i in self.string2id.items()}
+        self.bos_token_id = self.string2id["BOS"]
+        self.eos_token_id = self.string2id["EOS"]
+        self.vocab_size=len(self.string2id)
+        
+    def __call__(self,text):
+        return {"input_ids":[self.string2id.get(i,"") for i in text]}
+    
+    def convert_ids_to_string(self,ids):
+        return "".join([self.id2string[i] for i in ids])
 
 def train(args):
     dist.init_parallel_env()
     device = 'gpu:{}'.format(dist.ParallelEnv().dev_id)
     device = paddle.set_device(device)    
-    tokenizer = GPTChineseTokenizer("gpt-cpm-cn-sentencepiece.model")    
+    tokenizer = ocr_token("ocr_keys_v1.txt") #GPTChineseTokenizer("gpt-cpm-cn-sentencepiece.model")
     train_dataset=SimpleDataSet(args.data_dir,args.train_list,image_process(224),tokenizer)
     test_dataset=SimpleDataSet(args.data_dir,args.test_list,image_process(224,False),tokenizer)
     sampler = DistributedBatchSampler(train_dataset, batch_size=32,shuffle=True,drop_last=False)
