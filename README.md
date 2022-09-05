@@ -24,9 +24,10 @@ An image to text model base on transformer which can also be used on OCR task.
   
  ## 模型说明
  
-* 本文使用了Swin Transformer作为图像部分的编码器；
-* 使用GPT等基于TansformerDecoder的中文预训练模型作为TrOCR文本部分的解码器以适用于中文OCR识别任务；
+* 本文使用了Swin Transformer，CoAtNet等作为图像部分的编码器；
+* 使用GPT等基于TansformerDecoder的中文预训练模型作为TrOCR文本部分的解码器以适用于中文OCR识别任务；也可以基于ocr_keys_v1.txt的字典不使用预训练模型。
 * 集成了 NVIDIA FasterTransformer 用于预测加速，以解决当模型解码器的维度、束搜索空间、层数，较高、大、深时可能出现的推断效率问题。
+* 增加了一个Beam Search方法，通常情况下更快更准。
  
 `image2text.py`中包含了用于训练的Image2Text模型和用于快速推断的FasterTransformer, 模型基于paddlepaddle开发. 这时你可以从[paddlenlp模型库](https://paddlenlp.readthedocs.io/zh/latest/model_zoo/transformers.html)中加载各种基于中文数据集的预训练模型. 当处理OCR任务时其基本等同于微软研究院基于Fairseq开源的[TrOCR](https://www.msra.cn/zh-cn/news/features/trocr).
  
