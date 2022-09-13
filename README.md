@@ -24,7 +24,7 @@ An image to text model base on transformer which can also be used on OCR task.
   
  ## 模型说明
  
-* 本文使用了Swin Transformer，CoAtNet等作为图像部分的编码器；
+* 本文使用了Swin Transformer等作为图像部分的编码器；
 * 使用GPT等基于TansformerDecoder的中文预训练模型作为TrOCR文本部分的解码器以适用于中文OCR识别任务；也可以基于ocr_keys_v1.txt的字典不使用预训练模型。
 * 集成了 NVIDIA FasterTransformer 用于预测加速，以解决当模型解码器的维度、束搜索空间、层数，较高、大、深时可能出现的推断效率问题。
 * 增加了一个[Beam Search方法](https://github.com/janelu9/TrOCR/blob/d3d3d7be156157ff802980a636a48aa29e4fc403/image2text.py#L757)，通常情况下更快更准。
