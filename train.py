@@ -13,7 +13,8 @@ from paddlenlp.transformers import GPTChineseTokenizer
 import paddle.distributed as dist
 import os
 from image2text import (SwinTransformerEncoder,TransformerDecoder,Image2Text,WordEmbedding,
-                        PositionalEmbedding,FasterTransformer,InferTransformerModel)
+                        PositionalEmbedding,FasterTransformer,InferTransformerModel)                        
+from cswin_transformer import CSwinTransformerEncoder
 from lr_scheduler import InverseSqrt
 from argparse import ArgumentParser
 import numpy as np
@@ -25,8 +26,9 @@ def parse_args():
                                         "helper utility that will spawn up "
                                         "multiple distributed processes")
 
-    parser.add_argument("--decoder-pretrained", type=str,default="../gpt/gpt-cpm-small-cn-distill.pdparams",
+    parser.add_argument("--decoder-pretrained", type=str,default="ernie_3.0_medium_zh.pdparams",
                         help="pretrained model's params path")
+    #https://bj.bcebos.com/paddlenlp/models/transformers/ernie_3.0/ernie_3.0_medium_zh.pdparams
     
     parser.add_argument("--data-dir", type=str,default="/mnt/e/OCR/unilm/trocr/IAM/image/",
                         help="data _dir")
@@ -83,13 +85,23 @@ def train(args):
         collate_fn = test_dataset.collate_fn,
         use_shared_memory=True)
         
-    encoder = SwinTransformerEncoder(img_size=224,embed_dim=96,depths=[2, 2, 18, 2],num_heads=[3, 6, 12, 24],window_size=7,drop_path_rate=0.1)
-    decoder = TransformerDecoder(d_model=768,n_head=6,dim_feedforward=768*4,num_layers=6)
+    #encoder = SwinTransformerEncoder(img_size=224,embed_dim=96,depths=[2, 2, 18, 2],num_heads=[3, 6, 12, 24],window_size=7,drop_path_rate=0.1)
+    encoder= CSwinTransformerEncoder(
+        image_size=224,
+        embed_dim=96,
+        depths=[2, 4, 32, 2],
+        splits=[1, 2, 7, 7],
+        num_heads=[4, 8, 16, 32],
+        droppath=0.5,
+        )
+    encoder.load_dict(paddle.load("CSWinTransformer_base_224_pretrained.pdparams"))
+    #https://paddle-imagenet-models-name.bj.bcebos.com/dygraph/CSWinTransformer_base_224_pretrained.pdparams
+    decoder = TransformerDecoder(d_model=768,n_head=12,dim_feedforward=768*4,num_layers=6)
     word_emb = WordEmbedding(vocab_size=tokenizer.vocab_size,emb_dim=decoder.d_model,pad_id=train_dataset.pad_id)
-    pos_emb = PositionalEmbedding(decoder.d_model,max_length=32,learned=True)
+    pos_emb = PositionalEmbedding(decoder.d_model,max_length=2048,learned=True)
     project_out = nn.Linear(decoder.d_model, word_emb.vocab_size)
     
-    def load_pretrained_params(path):
+    def load_pretrained_gpt(path):
         pretrained_model=paddle.load(path)
         word_emb.load_dict({'word_embeddings.weight':pretrained_model['embeddings.word_embeddings.weight']})
         pos_emb.load_dict({'position_embeddings.weight':pretrained_model['embeddings.position_embeddings.weight']})
@@ -103,8 +115,34 @@ def train(args):
         if len(un_matched)>0:
             print("unmatched keys:%s" % str(un_matched))
         decoder.load_dict(state_dict)
+        
+    def load_pretrained_ernie(param_path,vocab_path,token):
+        p= paddle.load(param_path)
+        with open(vocab_path) as f :keys=f.read().splitlines()
+        other_string2id = {k:i for i,k in enumerate(keys)}
+        index = [ other_string2id["[UNK]"], other_string2id["[PAD]"], other_string2id['[SEP]']]
+        index.extend([other_string2id.get(token.id2string[i],other_string2id["[UNK]"]) for i in range(3,token.vocab_size)])
+        word_emb.load_dict({
+            'word_embeddings.weight': paddle.index_select(p['ernie.embeddings.word_embeddings.weight'],paddle.to_tensor(index)),
+            'layer_norm.weight' : p['ernie.embeddings.layer_norm.weight'], 
+            'layer_norm.bias' :p['ernie.embeddings.layer_norm.bias']        
+                           })
+        pos_emb.load_dict({'position_embeddings.weight':p['ernie.embeddings.position_embeddings.weight']})
+        
+        decoder_state_dict={}
+        un_matched = []
+        for k in decoder.state_dict().keys():
+            ek = "ernie.encoder."+k
+            if ek in p:
+                decoder_state_dict[k]=p[ek]
+            else:
+                un_matched.append(k)
+        decoder.load_dict(decoder_state_dict)
+        if len(un_matched)>0:
+            print("unmatched keys:%s" % str(un_matched))
     try:
-        load_pretrained_params(args.decoder_pretrained)
+        #load_pretrained_gpt(args.decoder_pretrained)
+        load_pretrained_ernie(args.decoder_pretrained,"ernie_vocab.txt",tokenizer)
     except:
         print("pretrained decoder isn't loaded")
     model=Image2Text(encoder,decoder,word_emb,pos_emb,project_out,train_dataset.eos_id)
@@ -166,7 +204,7 @@ def train(args):
             L += loss.numpy()[0]
             if (batch_id) % log_period == 0:
                 cur_train_period_acc = R/S
-                print("epoch: {}, batch_id: {}, loss: {}, lr: {}, acc: {}, fps:{}".\
+                print("epoch: {}, batch_id: {}, loss: {:.6f}, lr: {:.9f}, acc: {:.6f}, fps:{:.6f}".\
                 format(epoch, batch_id, L/log_period,scheduler.get_lr() ,cur_train_period_acc,S/(time()-st)))
                 R=S=L=0
                 train_acc=max(cur_train_period_acc,train_acc)
@@ -185,7 +223,7 @@ def train(args):
                         test_right,_ = metric(predicts,data['label'],tokenizer)
                         TR+=test_right
                 cur_test_acc=TR/len(test_dataset)
-                print("epoch: {}, batch_id: {}, test_acc : {}, cost_time: {}s".format(epoch, batch_id, cur_test_acc,(time()-st)))
+                print("epoch: {}, batch_id: {}, test_acc : {:.6f}, cost_time: {:.6f}s".format(epoch, batch_id, cur_test_acc,(time()-st)))
                 model.train()
                 if cur_test_acc>test_acc:
                     test_acc = cur_test_acc

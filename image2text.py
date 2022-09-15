@@ -9,6 +9,7 @@ import paddle.nn as nn
 import paddle.nn.functional as F
 from vision_transformer import VisionTransformer, Identity, trunc_normal_, zeros_
 from swin_transformer import SwinTransformer
+from cswin_transformer import CSwinTransformerEncoder
 from paddle.framework import ParamAttr
 from paddle.fluid import layers
 from paddle.nn.layer.transformer import _convert_param_attr_to_list
@@ -93,8 +94,9 @@ class WordEmbedding(nn.Layer):
         self.pad_id = pad_id
         self.word_embeddings = nn.Embedding(num_embeddings=vocab_size,embedding_dim=emb_dim,padding_idx=pad_id,
             weight_attr=paddle.ParamAttr(initializer=nn.initializer.Normal(0., emb_dim**-0.5)))
+        self.layer_norm = nn.LayerNorm(emb_dim)
     def forward(self, word):
-        return self.emb_dim**0.5 * self.word_embeddings(word)
+        return self.word_embeddings(word)
 
 class MultiHeadAttention(nn.Layer):
     def __init__(self,embed_dim,num_heads,dropout=0.,kdim=None,vdim=None,need_weights=False,weight_attr=None,bias_attr=None,**kwargs):
@@ -163,7 +165,7 @@ class MultiHeadAttention(nn.Layer):
     
     
 class TransformerDecoderLayer(nn.Layer):
-    def __init__(self,d_model,nhead,dim_feedforward,dropout=0.0,skdim=None,svdim=None,ckdim=None,cvdim=None,activation='ReLU',
+    def __init__(self,d_model,nhead,dim_feedforward,dropout=0.0,skdim=None,svdim=None,ckdim=None,cvdim=None,activation='GELU',
                  attn_dropout=None,act_dropout=None,normalize_before=True,weight_attr=None,bias_attr=None,**kwargs):
         self._config = locals()
         self._config.pop("__class__", None)
@@ -339,7 +341,7 @@ class TransformerDecoder(nn.Layer):
         return (output, new_caches)
 
 class Image2Text(nn.Layer):
-    def __init__(self,img_encoder,txt_decoder,word_emb,pos_emb,project_out,eos_id=7,dropout=0):
+    def __init__(self,img_encoder,txt_decoder,word_emb,pos_emb,project_out,eos_id=7,emb_dropout=0.1):
         super(Image2Text, self).__init__()
         self.encoder = img_encoder
         self.decoder = txt_decoder
@@ -349,13 +351,13 @@ class Image2Text(nn.Layer):
         self.max_length = pos_emb.max_length
         self.word_embedding = word_emb
         self.pos_embedding = pos_emb
-        self.dropout= nn.Dropout(dropout)
+        self.dropout= nn.Dropout(emb_dropout)
         self.project_out = project_out
 
     def forward(self, img, tgt,src_mask=0,tgt_mask=0, memory_mask=0):         
         memory = self.encoder(img)            
-        dec_input = self.dropout(self.word_embedding(tgt) + \
-                                 self.pos_embedding(paddle.arange(tgt.shape[1]).unsqueeze(0)))         
+        dec_input = self.dropout(self.word_embedding.layer_norm(self.word_embedding(tgt) + \
+                                 self.pos_embedding(paddle.arange(tgt.shape[1]).unsqueeze(0))))       
         dec_output = self.decoder(dec_input,memory,
                                   tgt_mask=self.decoder._mask(tgt.shape[1]) if tgt_mask else 0)
         predict = self.project_out(dec_output)
@@ -466,7 +468,7 @@ class TransformerDecodeCell(nn.Layer):
 
             word_emb = self.word_embedding(inputs[0])
             pos_emb = self.pos_embedding(inputs[1])
-            word_emb = word_emb + pos_emb
+            word_emb = self.word_embedding.layer_norm( word_emb + pos_emb)
             inputs = self.dropout(word_emb)
 
             cell_outputs, new_states = self.decoder(inputs, memory, 0,
@@ -723,7 +725,7 @@ class InferTransformerModel(nn.Layer):
             trg_pos = paddle.full(shape=paddle.shape(pre_word),dtype=alive_seq.dtype,fill_value=i)
             trg_emb = self.word_embedding(pre_word)
             trg_pos_emb = self.pos_embedding(trg_pos)
-            trg_emb = trg_emb + trg_pos_emb
+            trg_emb = self.word_embedding.layer_norm(trg_emb + trg_pos_emb)
             dec_input = self.dropout(trg_emb)
 
             logits, caches = self.decoder(dec_input, enc_output, 0, 0, caches)
@@ -791,7 +793,7 @@ class InferTransformerModel(nn.Layer):
             trg_pos = paddle.full(shape=paddle.shape(curr_word),dtype=curr_word.dtype,fill_value=i)
             trg_emb = self.word_embedding(curr_word)
             trg_pos_emb = self.pos_embedding(trg_pos)
-            trg_emb = trg_emb + trg_pos_emb
+            trg_emb = self.word_embedding.layer_norm(trg_emb + trg_pos_emb)
             dec_input = self.dropout(trg_emb)
             logits, states = self.decoder(dec_input, cache=states)
             log_probs = F.log_softmax(self.project_out(logits))
@@ -861,7 +863,7 @@ class InferTransformerModel(nn.Layer):
         trg_pos = paddle.full(shape=paddle.shape(curr_word),dtype=curr_word.dtype,fill_value=0)
         trg_emb = self.word_embedding(curr_word)
         trg_pos_emb = self.pos_embedding(trg_pos)
-        trg_emb = trg_emb + trg_pos_emb
+        trg_emb = self.word_embedding.layer_norm(trg_emb + trg_pos_emb)
         dec_input = self.dropout(trg_emb)
         logits, states = self.decoder.begin(dec_input,enc_output)
         log_probs = F.log_softmax(self.project_out(logits))
@@ -906,3 +908,5 @@ class InferTransformerModel(nn.Layer):
     # out1=infer(img)
      
 # paddle.jit.save(paddle.jit.to_static(infer,input_spec=[paddle.static.InputSpec(name='img',shape=[None,3,224,224], dtype="float32")]),"infer")
+
+
