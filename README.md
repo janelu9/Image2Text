@@ -18,10 +18,21 @@ An image to text model base on transformer which can also be used on OCR task.
   ```shell
   pip install attrdict pyyaml paddlenlp
   ```
-* 对于图灵架构GPU(CUDA版本为10.1)也可以通过docker镜像来安装paddle运行环境
+* 对于图灵架构GPU(CUDA版本为10.1)也可以通过docker镜像来安装paddle运行环境：
+```
+#拉取cuda运行环境镜像（已经配置好gcc和cmake等常用工具） ：
+$ docker pull registry.cn-shanghai.aliyuncs.com/janelu9/dl:cuda-10.1-cudnn8-ubuntu18.04`
 
-` docker pull registry.cn-shanghai.aliyuncs.com/janelu9/dl:paddle2.2.2-cuda10.1-cudnn8-devel-ubuntu18.04`
-  
+#启动容器
+$ docker run -d --gpus all --name paddle --shm-size=32g --ulimit memlock=-1 -v /mnt:/mnt -p 8888:8888 -it 146273117745 /bin/bash
+
+#安装Anaconda
+$ ./Anaconda3-*-Linux-x86_64.sh
+$ source ~/.bashrc
+
+#安装paddle
+$ pip install paddlepaddle-gpu==2.3.2.post101 -f https://www.paddlepaddle.org.cn/whl/linux/mkl/avx/stable.html
+```
  ## 模型说明
  
 * 使用了SwinTransformer、CSwinTransformer等作为图像部分的编码器；
