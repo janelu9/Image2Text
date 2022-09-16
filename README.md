@@ -20,17 +20,18 @@ An image to text model base on transformer which can also be used on OCR task.
   ```
 * 对于图灵架构GPU(CUDA版本为10.1)也可以通过docker镜像来安装paddle运行环境：
 ```
-#拉取cuda运行环境镜像（已经配置好gcc和cmake等常用工具） ：
-$ docker pull registry.cn-shanghai.aliyuncs.com/janelu9/dl:cuda-10.1-cudnn8-ubuntu18.04`
+#拉取cuda运行环境镜像（已经配置好对应的gcc和cmake等常用工具）
+$ docker pull registry.cn-shanghai.aliyuncs.com/janelu9/dl:cuda-10.1-cudnn8-ubuntu18.04
 
 #启动容器
 $ docker run -d --gpus all --name paddle --shm-size=32g --ulimit memlock=-1 -v /mnt:/mnt -p 8888:8888 -it 146273117745 /bin/bash
 
-#安装Anaconda
+#安装[Anaconda](https://repo.anaconda.com/archive/)
 $ ./Anaconda3-*-Linux-x86_64.sh
 $ source ~/.bashrc
 
-#安装paddle
+#安装paddle及其依赖
+$ pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 $ pip install paddlepaddle-gpu==2.3.2.post101 -f https://www.paddlepaddle.org.cn/whl/linux/mkl/avx/stable.html
 ```
  ## 模型说明
