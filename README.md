@@ -12,27 +12,32 @@ An image to text model base on transformer which can also be used on OCR task.
 * 推荐使用 Python3
 * [FasterTransformer](https://github.com/NVIDIA/FasterTransformer/tree/v3.1#setup) 使用必要的环境
 * 环境依赖
-  - attrdict
-  - pyyaml
-  - paddlenlp
   ```shell
   pip install attrdict pyyaml paddlenlp
   ```
 * 对于图灵架构GPU(CUDA版本为10.1)也可以通过docker镜像来安装paddle运行环境：
+
+拉取cuda运行环境镜像（已经配置好对应的gcc和cmake等常用工具）
+```shell
+docker pull registry.cn-shanghai.aliyuncs.com/janelu9/dl:cuda-10.1-cudnn8-ubuntu18.04
 ```
-#拉取cuda运行环境镜像（已经配置好对应的gcc和cmake等常用工具）
-$ docker pull registry.cn-shanghai.aliyuncs.com/janelu9/dl:cuda-10.1-cudnn8-ubuntu18.04
-
-#启动容器
-$ docker run -d --gpus all --name paddle --shm-size=32g --ulimit memlock=-1 -v /mnt:/mnt -p 8888:8888 -it 146273117745 /bin/bash
-
-#安装[Anaconda](https://repo.anaconda.com/archive/)
-$ ./Anaconda3-*-Linux-x86_64.sh
-$ source ~/.bashrc
-
-#安装paddle及其依赖
-$ pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
-$ pip install paddlepaddle-gpu==2.3.2.post101 -f https://www.paddlepaddle.org.cn/whl/linux/mkl/avx/stable.html
+启动容器
+```shell
+docker run -d --gpus all --name paddle --shm-size=32g --ulimit memlock=-1 -v /mnt:/mnt -p 8888:8888 -it 146273117745 /bin/bash
+```
+安装[Anaconda](https://repo.anaconda.com/archive/)
+```shell
+./Anaconda3-*-Linux-x86_64.sh
+```
+```shell
+source ~/.bashrc
+```
+安装paddle及其依赖
+```shell
+pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+```
+```shell
+pip install paddlepaddle-gpu==2.3.2.post101 -f https://www.paddlepaddle.org.cn/whl/linux/mkl/avx/stable.html
 ```
  ## 模型说明
  
@@ -49,15 +54,17 @@ $ pip install paddlepaddle-gpu==2.3.2.post101 -f https://www.paddlepaddle.org.cn
  ## 模型训练调优、评估和保存
  1. 在`train.py`中配置好数据目录、训练集标签、测试集标签和预训练模型位置等参数。
  2. 训练模型：
+
+单机多卡启动，默认使用当前可见的所有卡
+```shell
+python -m paddle.distributed.launch train.py
 ```
-# 单机多卡启动，默认使用当前可见的所有卡
-$ python -m paddle.distributed.launch train.py
-
-# 单机多卡启动，设置当前使用的第0号和第1号卡
-$ python -m paddle.distributed.launch --gpus '0,1' train.py
-
-# 单机多卡启动，设置当前使用第0号和第1号卡
-$ export CUDA_VISIBLE_DEVICES=0,1
-$ python -m paddle.distributed.launch train.py
+单机多卡启动，设置当前使用的第0号和第1号卡
+```shell
+python -m paddle.distributed.launch --gpus '0,1' train.py
+```
+单机多卡启动，设置当前使用第0号和第1号卡
+```shell
+export CUDA_VISIBLE_DEVICES=0,1 && python -m paddle.distributed.launch train.py
 ```	
 *注：在部署推理服务时可以通过`paddle.jit.to_static`将模型转换为静态图（demo在`image2text.py`脚本的最后注释部分），然后使用[paddle inference](https://paddle-inference.readthedocs.io/en/latest/index.html)加载以提升推理效率。*
