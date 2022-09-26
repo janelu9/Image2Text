@@ -47,7 +47,7 @@ pip install paddlepaddle-gpu==2.3.2.post101 -f https://www.paddlepaddle.org.cn/w
 * 集成了 NVIDIA FasterTransformer 用于预测加速，以解决当模型解码器的维度、束搜索空间、层数，较高、大、深时可能出现的推断效率问题；
 * 增加了一个自定义的[Beam Search方法](https://github.com/janelu9/TrOCR/blob/d3d3d7be156157ff802980a636a48aa29e4fc403/image2text.py#L757)，通常情况下更快更准。
  
-`image2text.py`中包含了用于训练的Image2Text模型和用于快速推断的FasterTransformer, 模型基于paddlepaddle开发. 这时你可以从[paddlenlp模型库](https://paddlenlp.readthedocs.io/zh/latest/model_zoo/transformers.html)中加载各种基于中文数据集的预训练模型. 当处理OCR任务时其基本等同于微软研究院基于Fairseq开源的[TrOCR](https://www.msra.cn/zh-cn/news/features/trocr).
+`image2text.py`中包含了用于训练的Image2Text模型和用于快速推断的FasterTransformer, 模型基于paddlepaddle开发. 这时你可以从[paddlenlp模型库](https://paddlenlp.readthedocs.io/zh/latest/model_zoo/#id2)中加载各种基于中文数据集的预训练模型. 当处理OCR任务时其基本等同于微软研究院基于Fairseq开源的[TrOCR](https://www.msra.cn/zh-cn/news/features/trocr).
  
  *注：FasterTransformer会在**FasterTransformer**第一次被调用时自动编译。*
  
