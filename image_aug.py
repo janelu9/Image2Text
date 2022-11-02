@@ -6,7 +6,7 @@
 
 from PIL import Image, ImageFilter, ImageEnhance
 import numpy as np
-from numpy.random import uniform,random
+from numpy.random import uniform,random,randint
 
 np.random.seed(2022)
 
