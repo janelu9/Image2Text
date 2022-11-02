@@ -283,14 +283,14 @@ class TransformerDecoderLayer(nn.Layer):
         return (tgt, (incremental_cache,static_cache))
 
 class TransformerDecoder(nn.Layer):
-    def __init__(self,d_model, n_head, dim_feedforward, num_layers, **kwargs):
+    def __init__(self,d_model, n_head, dim_feedforward, num_layers, norm = True,**kwargs):
         super(TransformerDecoder, self).__init__()
         decoder_layer = TransformerDecoderLayer(d_model,n_head,dim_feedforward,**kwargs)
         self.layers = nn.LayerList([(decoder_layer if i == 0 else
                                   type(decoder_layer)(**decoder_layer._config))
                                  for i in range(num_layers)])
         self.num_layers = num_layers
-        self.norm = nn.LayerNorm(d_model)
+        self.norm = nn.LayerNorm(d_model) if norm is not None else None
         self.n_head= n_head
         self.d_model =d_model
 

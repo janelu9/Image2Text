@@ -31,6 +31,38 @@ class RandomPad:
             img_arr = np.concatenate([img_arr,np.tile(right,(1,int(uniform()*self.LR),1))],1)
         return  Image.fromarray(img_arr)
 
+class RandomCut:
+    def __init__(self, LR=14, UL=14, w=0.5):
+        self.LR=LR
+        self.UL=UL 
+        self.w=w
+    def __call__(self, img_arr) :
+        img_arr = np.array(img_arr)
+        if random()>self.w:
+            img_arr =img_arr[:min(-1,-int(random()*self.UL)),:,:]
+        if random()>self.w:
+            img_arr =img_arr[int(random()*self.UL):,:,:] 
+        if random()>self.w:
+            img_arr =img_arr[:,:min(-int(random()*self.LR),-1),:]
+        if random()>self.w:
+            img_arr =img_arr[:,int(random()*self.LR):,:] 
+        return img_arr
+
+class RandomMask:
+    def __init__(self,fill=0,space=(10,30),p=0.8):
+        self.fill=fill
+        self.space=space
+        self.p=p
+    def __call__(self,img_arr):
+        if random()<self.p:
+            img_arr= np.array(img_arr)
+            H=img_arr.shape[0]
+            h = randint(*self.space)
+            a = randint(0,high=H-h)
+            img_arr[a:a+h,a:a+h,:]=self.fill
+        return img_arr
+
+
 class Bright:
     def __init__(self, a=0.5,b=1.5):
         self.a = a
@@ -92,6 +124,7 @@ class Resize:
         self.w=w
         self.h=h
     def __call__(self,image):
+    
         return image.resize((self.w,self.h))
     
 class Normalize:
@@ -112,6 +145,7 @@ class image_process:
         if self.aug_flag:
             self.aug=(
                 (RandomPad(),0.8),
+                (RandomCut(),0.8),
                 (Bright(),0.3),
                 (Contrast(),0.3),
                 (Sharpness(),0.3),
@@ -121,8 +155,11 @@ class image_process:
                 (MaxFilter(),0.3),
                 (Rotate(),0.5),
             )
+            self.rm=RandomMask()
     def infer_process(self,img):
         img=self.resize(img)
+        if self.aug_flag:
+            img=self.rm(img)
         img_arr = np.array(img,'float32')
         return img_arr
 

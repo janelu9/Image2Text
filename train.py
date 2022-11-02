@@ -15,7 +15,7 @@ import os
 from image2text import (SwinTransformerEncoder,TransformerDecoder,Image2Text,WordEmbedding,
                         PositionalEmbedding,FasterTransformer,InferTransformerModel)                        
 from cswin_transformer import CSwinTransformerEncoder
-from lr_scheduler import InverseSqrt
+from lr_scheduler import InverseSqrt,
 from argparse import ArgumentParser
 import numpy as np
 from time import time
@@ -96,7 +96,7 @@ def train(args):
         )
     encoder.load_dict(paddle.load("CSWinTransformer_base_224_pretrained.pdparams"))
     #https://paddle-imagenet-models-name.bj.bcebos.com/dygraph/CSWinTransformer_base_224_pretrained.pdparams
-    decoder = TransformerDecoder(d_model=768,n_head=12,dim_feedforward=768*4,num_layers=6)
+    decoder = TransformerDecoder(d_model=768,n_head=12,dim_feedforward=768*4,num_layers=6,dropout=0.1)
     word_emb = WordEmbedding(vocab_size=tokenizer.vocab_size,emb_dim=decoder.d_model,pad_id=train_dataset.pad_id)
     pos_emb = PositionalEmbedding(decoder.d_model,max_length=2048,learned=True)
     project_out = nn.Linear(decoder.d_model, word_emb.vocab_size)
@@ -121,7 +121,7 @@ def train(args):
         with open(vocab_path) as f :keys=f.read().splitlines()
         other_string2id = {k:i for i,k in enumerate(keys)}
         index = [ other_string2id["[UNK]"], other_string2id["[PAD]"], other_string2id['[SEP]']]
-        index.extend([other_string2id.get(token.id2string[i],other_string2id["[UNK]"]) for i in range(3,token.vocab_size)])
+        index.extend([other_string2id.get(token.id2string[i].lower(),other_string2id["[UNK]"]) for i in range(3,token.vocab_size)])
         word_emb.load_dict({
             'word_embeddings.weight': paddle.index_select(p['ernie.embeddings.word_embeddings.weight'],paddle.to_tensor(index)),
             'layer_norm.weight' : p['ernie.embeddings.layer_norm.weight'], 
@@ -154,8 +154,28 @@ def train(args):
         infer = InferTransformerModel(model,max_out_len=32,beam_search_version="custom")    
     model = paddle.DataParallel(model)
     model.train()
-    scheduler = paddle.optimizer.lr.NoamDecay(d_model=decoder.d_model, warmup_steps=500, verbose=False)
-    opt = paddle.optimizer.Adam(parameters=model.parameters(),learning_rate=scheduler,weight_decay= 0.0001)
+    
+    epochs=50
+    batch_id=0
+    # scheduler = paddle.optimizer.lr.NoamDecay(d_model=decoder.d_model, warmup_steps=500, verbose=False)
+    # opt = paddle.optimizer.Adam(parameters=model.parameters(),learning_rate=scheduler,weight_decay= 0.0001)
+    scheduler = LinearDecayWithWarmup(1e-4, num_training_steps,5000,last_epoch = batch_id-1)
+
+    # Generate parameter names needed to perform weight decay.
+    # All bias and LayerNorm parameters are excluded.
+    decay_params = [
+        p.name for n, p in model.named_parameters()
+        if not any(nd in n for nd in ["bias", "norm"])
+    ]
+    opt = paddle.optimizer.AdamW(
+        learning_rate=scheduler,
+        beta1=0.9,
+        beta2=0.999,
+        epsilon=1e-6,
+        parameters=model.parameters(),
+        weight_decay=0.0,
+        apply_decay_param_fun=lambda x: x in decay_params,
+        grad_clip=nn.ClipGradByGlobalNorm(1.))
     
     def metric(pred,label,tokenizer):
         if len(pred.shape)==3:
@@ -180,8 +200,7 @@ def train(args):
                 right+=1
         return right,m
         
-    epochs=500
-    batch_id=1
+
     R=S=L=0
     log_period=200
     test_period=1000
