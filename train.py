@@ -159,7 +159,7 @@ def train(args):
     batch_id=0
     # scheduler = paddle.optimizer.lr.NoamDecay(d_model=decoder.d_model, warmup_steps=500, verbose=False)
     # opt = paddle.optimizer.Adam(parameters=model.parameters(),learning_rate=scheduler,weight_decay= 0.0001)
-    scheduler = LinearDecayWithWarmup(1e-4, epochs*len(train_loader),5000,last_epoch = batch_id-1)
+    scheduler = LinearDecayWithWarmup(2e-5, epochs*len(train_loader),5000,last_epoch = batch_id-1)
 
     # Generate parameter names needed to perform weight decay.
     # All bias and LayerNorm parameters are excluded.
