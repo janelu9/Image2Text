@@ -24,7 +24,7 @@ class SimpleDataSet(Dataset):
         data=[]
         for d,l in zip(self.img_pths,self.label_lists):
             with open(l, 'r') as fp:
-                for line in fp.readlines():
+                for line in fp.read().splitlines():
                     img_name,text=line.strip().split("\t")
                     img_path = os.path.join(d, img_name)
                     ids=self.tokenizer(text)["input_ids"]
