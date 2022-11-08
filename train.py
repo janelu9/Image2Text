@@ -235,6 +235,7 @@ def train(args):
                 st=time()
             if (batch_id) % test_period == 0 and train_acc>=test_acc:
                 paddle.save(model.state_dict(),"./check_point.pdparams")
+                print(f"save model's params to ./check_point.pdparams with batch_id :{batch_id}")
                 if fast:
                     infer._init_fuse_params()
                 infer.eval()
@@ -254,7 +255,7 @@ def train(args):
                     test_acc = cur_test_acc
                     train_acc=1
                     paddle.save(model.state_dict(),"./best_model.pdparams")
-                    print(f"save model's params to ./best_model.pdparams with acc :{test_acc}")
+                    print(f"save model's params to ./best_model.pdparams with batch_id :{batch_id} acc :{test_acc}")
                 st=time()     
 if __name__ == '__main__':
     args = parse_args()
