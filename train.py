@@ -254,7 +254,7 @@ def train(args):
                     test_acc = cur_test_acc
                     train_acc=1
                     paddle.save(model.state_dict(),"./best_model.pdparams")
-                    print("save model's params to ./best_model.pdparams")
+                    print(f"save model's params to ./best_model.pdparams with acc :{test_acc}")
                 st=time()     
 if __name__ == '__main__':
     args = parse_args()
