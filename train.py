@@ -147,6 +147,11 @@ def train(args):
         print("pretrained decoder isn't loaded")
     model=Image2Text(encoder,decoder,word_emb,pos_emb,project_out,train_dataset.eos_id)
     try:
+        model.load_dict(paddle.load("./check_point.pdparams"))
+        print("load model's params from last epoch")
+    except:
+        print("start trainning from zero")
+    try:
         fast = True
         infer = FasterTransformer(model,max_out_len=32)
     except:
@@ -229,6 +234,7 @@ def train(args):
                 train_acc=max(cur_train_period_acc,train_acc)
                 st=time()
             if (batch_id) % test_period == 0 and train_acc>=test_acc:
+                paddle.save(model.state_dict(),"./check_point.pdparams")
                 if fast:
                     infer._init_fuse_params()
                 infer.eval()
