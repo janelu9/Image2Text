@@ -777,7 +777,7 @@ class InferTransformerModel(nn.Layer):
         max_len = (enc_output.shape[1] + 20) if max_len is None else max_len
         inf = float(1. * 1e7)
         curr_log_probs =paddle.tile(paddle.assign(np.array([[0.] + [-inf] * (beam_size - 1)], "float32")), [batch_size, 1])
-        curr_word = paddle.assign(np.array([[self.bos_id]]*batch_size*beam_size,"int64"))
+        curr_word = paddle.full(shape=[batch_size*beam_size, 1],dtype="int64",fill_value=self.bos_id)
         batch_coordinate = paddle.reshape( paddle.tile(paddle.arange(batch_size).unsqueeze(-1)*beam_size,(1,beam_size)),[-1])
         batch_coordinate_ = paddle.reshape( paddle.tile(paddle.arange(batch_size).unsqueeze(-1)*beam_size,(1,beam_size+1)),[-1])
         eos = paddle.full(shape=[batch_size,beam_size+1],dtype="int64",fill_value=self.eos_id)
