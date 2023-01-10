@@ -166,7 +166,7 @@ class MultiHeadAttention(nn.Layer):
     
 class TransformerDecoderLayer(nn.Layer):
     def __init__(self,d_model,nhead,dim_feedforward,dropout=0.0,skdim=None,svdim=None,ckdim=None,cvdim=None,activation='GELU',
-                 attn_dropout=None,act_dropout=None,normalize_before=True,weight_attr=None,bias_attr=None,**kwargs):
+                 attn_dropout=None,act_dropout=None,normalize_before=False,weight_attr=None,bias_attr=None,**kwargs):
         self._config = locals()
         self._config.pop("__class__", None)
         super(TransformerDecoderLayer, self).__init__()
@@ -283,7 +283,7 @@ class TransformerDecoderLayer(nn.Layer):
         return (tgt, (incremental_cache,static_cache))
 
 class TransformerDecoder(nn.Layer):
-    def __init__(self,d_model, n_head, dim_feedforward, num_layers, norm = True,**kwargs):
+    def __init__(self,d_model, n_head, dim_feedforward, num_layers, norm = None,**kwargs):
         super(TransformerDecoder, self).__init__()
         decoder_layer = TransformerDecoderLayer(d_model,n_head,dim_feedforward,**kwargs)
         self.layers = nn.LayerList([(decoder_layer if i == 0 else
@@ -353,6 +353,7 @@ class Image2Text(nn.Layer):
         self.pos_embedding = pos_emb
         self.dropout= nn.Dropout(emb_dropout)
         self.project_out = project_out
+        self.ctc_lo = nn.Linear(txt_decoder.d_model,word_emb.vocab_size+1)
 
     def forward(self, img, tgt,src_mask=0,tgt_mask=0, memory_mask=0):         
         memory = self.encoder(img)            
@@ -361,7 +362,7 @@ class Image2Text(nn.Layer):
         dec_output = self.decoder(dec_input,memory,
                                   tgt_mask=self.decoder._mask(tgt.shape[1]) if tgt_mask else 0)
         predict = self.project_out(dec_output)
-        return predict
+        return predict,self.dropout1(self.ctc_lo(dec_output))
         
 class FasterTransformer(nn.Layer):
     def __init__(self,model,

@@ -8,6 +8,7 @@ from paddle.io import Dataset
 from PIL import Image
 import os
 import numpy as np
+import cv2
 
 class SimpleDataSet(Dataset):
     def __init__(self,img_pths,label_lists,image_process,tokenizer):
@@ -36,23 +37,21 @@ class SimpleDataSet(Dataset):
 
     def __getitem__(self, idx):
         img,txt = self.data[idx]
-        try:
-            image = Image.open(img).convert('RGB')
-            tfm_img = self.image_process(image)  # h, w, c
-        except:
-            rnd_idx = (idx + 1) % self.__len__()
-            return self.__getitem__(rnd_idx)
+        image=Image.open(img).convert('RGB')#cv2.imread(img,1)[:,:,::-1]
+        tfm_img=self.image_process(image)
         return { 'img': tfm_img, 'ids': txt}
     
     def collate_fn(self,x):
-        d={'img':[],'tgt':[],'label':[]}
+        d={'img':[],'tgt':[],'label':[],'label_len':[]}
         max_len = max(len(i["ids"]) for i in x)
         for item in x:
             d['img'].append(item['img'])
             pad_id=[self.pad_id]*(max_len-len(item['ids']))
             d['tgt'].append([self.bos_id]+item['ids']+pad_id)
             d['label'].append(item['ids']+[self.eos_id]+pad_id)
+            d['label_len'].append(len(item['ids'])+1)
         d['img']=self.image_process.normalize(np.array(d['img'])).transpose(0,3,1,2)
         d['tgt']=np.array(d['tgt'])
         d['label']=np.array(d['label'])
+        d['label_len']=np.array(d['label_len'])
         return d

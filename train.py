@@ -15,7 +15,8 @@ import os
 from image2text import (SwinTransformerEncoder,TransformerDecoder,Image2Text,WordEmbedding,
                         PositionalEmbedding,FasterTransformer,InferTransformerModel)                        
 from cswin_transformer import CSwinTransformerEncoder
-from lr_scheduler import InverseSqrt,
+from lr_scheduler import InverseSqrt,LinearDecayWithWarmup
+from loss import CTCLoss,LabelSmoothingLoss
 from argparse import ArgumentParser
 import numpy as np
 from time import time
@@ -96,9 +97,9 @@ def train(args):
         )
     encoder.load_dict(paddle.load("CSWinTransformer_base_224_pretrained.pdparams"))
     #https://paddle-imagenet-models-name.bj.bcebos.com/dygraph/CSWinTransformer_base_224_pretrained.pdparams
-    decoder = TransformerDecoder(d_model=768,n_head=12,dim_feedforward=768*4,num_layers=6,dropout=0.1)
-    word_emb = WordEmbedding(vocab_size=tokenizer.vocab_size,emb_dim=decoder.d_model,pad_id=train_dataset.pad_id)
-    pos_emb = PositionalEmbedding(decoder.d_model,max_length=2048,learned=True)
+    decoder = TransformerDecoder(d_model=768,n_head=12,dim_feedforward=768*4,num_layers=6,dropout=0.3)
+    word_emb = WordEmbedding(vocab_size=tokenizer.vocab_size,emb_dim=decoder.d_model,pad_id=train_dataset.bos_token_id)
+    pos_emb = PositionalEmbedding(decoder.d_model,max_length=64,learned=True)
     project_out = nn.Linear(decoder.d_model, word_emb.vocab_size)
     
     def load_pretrained_gpt(path):
@@ -127,7 +128,7 @@ def train(args):
             'layer_norm.weight' : p['ernie.embeddings.layer_norm.weight'], 
             'layer_norm.bias' :p['ernie.embeddings.layer_norm.bias']        
                            })
-        pos_emb.load_dict({'position_embeddings.weight':p['ernie.embeddings.position_embeddings.weight']})
+        pos_emb.load_dict({'position_embeddings.weight':p['ernie.embeddings.position_embeddings.weight'][:pos_emb.max_length,:]})
         
         decoder_state_dict={}
         un_matched = []
@@ -181,6 +182,9 @@ def train(args):
         weight_decay=0.0,
         apply_decay_param_fun=lambda x: x in decay_params,
         grad_clip=nn.ClipGradByGlobalNorm(1.))
+        
+    LSL = LabelSmoothingLoss(size=tokenizer.vocab_size,padding_idx=tokenizer.bos_token_id,smoothing=0.1)
+    CTC = CTCLoss(blank=word_emb.vocab_size+1,reduction='mean',batch_average=True)
     
     def metric(pred,label,tokenizer):
         if len(pred.shape)==3:
@@ -214,8 +218,9 @@ def train(args):
     st=time()
     for epoch in range(epochs):    
         for data in train_loader():
-            predicts = model(data['img'],data['tgt'],tgt_mask=True)
-            loss = paddle.nn.functional.cross_entropy(predicts, data['label'])
+            predicts ,ctc= model(data['img'],data['tgt'],tgt_mask=True)
+            length=paddle.full_like(data['tgt'][:,0],ctc.shape[1])
+            loss = LSL(predicts, data['label'])*0.7+0.3*CTC(ctc,data['label'],length,data['label_len'])
             right,samples = metric(predicts,data['label'],tokenizer)
             loss.backward()
             opt.step()
