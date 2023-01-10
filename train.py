@@ -247,7 +247,7 @@ def train(args):
                 with paddle.no_grad():
                     TR=0
                     for data in test_loader():
-                        predicts = infer(data['img'])
+                        predicts,_ = infer(data['img'])
                         if fast:
                             predicts=predicts.transpose([1,0,2])
                         predicts=predicts[:,:,0]
