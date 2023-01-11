@@ -42,6 +42,7 @@ pip install paddlepaddle-gpu==2.3.2.post101 -f https://www.paddlepaddle.org.cn/w
  ## 模型说明
  
 * 使用了SwinTransformer、CSwinTransformer等作为图像部分的编码器；
+* 使用了KLDivLoss和CTCLoss相结合的损失函数（可以仅使用Attention解码，也可以使用CTC前缀束搜索加Attention重排序的方式解码）；
 * 使用ERNIE-3.0、GPT等基于TansformerEncoder/Decoder的中文预训练模型作为TrOCR文本部分的解码器以适用于中文OCR识别任务；
 * 可以改用较小的字典（如`ocr_keys_v1.txt`，包含6623个常见字符），脚本在加载预训练Decoder模型时会重构`wordembedding`以适应新的字典；
 * 集成了 NVIDIA FasterTransformer 用于预测加速，以解决当模型解码器的维度、束搜索空间、层数，较高、大、深时可能出现的推断效率问题；
