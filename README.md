@@ -5,16 +5,17 @@ An image to text model base on transformer which can also be used on OCR task.
 
 ## 环境说明
 
-* 本项目依赖于 PaddlePaddle 2.1.0 及以上版本或适当的 develop 版本
-* CMake >= 3.10
-* CUDA 10.1 或以上版本 （需要 PaddlePaddle 框架一致）
-* gcc 版本需要与编译 PaddlePaddle 版本一致，比如使用 gcc8.2
-* 推荐使用 Python3
-* [FasterTransformer](https://github.com/NVIDIA/FasterTransformer/tree/v3.1#setup) 使用必要的环境
-* 环境依赖
-  ```shell
-  pip install attrdict pyyaml paddlenlp
-  ```
+* 本项目依赖于 PaddlePaddle 2.3.2 版本
+* 如果使用NVIDIA FasterTransformer则需安装如下依赖：
+	** CMake >= 3.10
+	** CUDA 10.1 或以上版本 （需要 PaddlePaddle 框架一致）
+	** gcc 版本需要与编译 PaddlePaddle 版本一致，比如使用 gcc8.2
+	** 推荐使用 Python3
+	** [FasterTransformer](https://github.com/NVIDIA/FasterTransformer/tree/v3.1#setup) 使用必要的环境
+	** 环境依赖
+	  ```shell
+	  pip install attrdict pyyaml paddlenlp
+	  ```
 * 对于图灵架构GPU(CUDA版本为10.1)也可以通过docker镜像来安装paddle运行环境：
 
 拉取cuda运行环境镜像（已经配置好对应的gcc和cmake等常用工具）
@@ -43,7 +44,7 @@ pip install paddlepaddle-gpu==2.3.2.post101 -f https://www.paddlepaddle.org.cn/w
  
 * 使用了SwinTransformer、CSwinTransformer等作为图像部分的编码器；
 * 使用了KLDivLoss和CTCLoss相结合的损失函数（可以仅使用Attention解码，也可以使用CTC前缀束搜索加Attention重排序的方式解码）；
-* 使用ERNIE-3.0、GPT等基于TansformerEncoder/Decoder的中文预训练模型作为TrOCR文本部分的解码器以适用于中文OCR识别任务；
+* 使用ERNIE-3.0等基于TansformerEncoder/Decoder的中文预训练模型作为TrOCR文本部分的解码器以适用于中文OCR识别任务；
 * 可以改用较小的字典（如`ocr_keys_v1.txt`，包含6623个常见字符），脚本在加载预训练Decoder模型时会重构`wordembedding`以适应新的字典；
 * 集成了 NVIDIA FasterTransformer 用于预测加速，以解决当模型解码器的维度、束搜索空间、层数，较高、大、深时可能出现的推断效率问题；
 * 增加了一个自定义的[Beam Search方法](https://github.com/janelu9/TrOCR/blob/d3d3d7be156157ff802980a636a48aa29e4fc403/image2text.py#L757)，通常情况下更快更准。
@@ -68,4 +69,6 @@ python -m paddle.distributed.launch --gpus '0,1' train.py
 ```shell
 export CUDA_VISIBLE_DEVICES=0,1 && python -m paddle.distributed.launch train.py
 ```	
-*注：在部署推理服务时可以通过`paddle.jit.to_static`将模型转换为静态图（demo在`image2text.py`脚本的最后注释部分），然后使用[paddle inference](https://paddle-inference.readthedocs.io/en/latest/index.html)加载以提升推理效率。*
+*注：在部署推理服务时可以通过:*
+*`paddle.jit.save(layer=infer,path="inference",input_spec=[paddle.static.InputSpec(shape=[None,3,384,384],dtype='float32')])`*
+*将模型转换为静态图，然后使用[paddle inference](https://paddle-inference.readthedocs.io/en/latest/index.html)加载以提升推理效率。*

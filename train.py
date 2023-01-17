@@ -63,8 +63,8 @@ def train(args):
     device = 'gpu:{}'.format(dist.ParallelEnv().dev_id)
     device = paddle.set_device(device)    
     tokenizer = ocr_token("ocr_keys_v1.txt") #GPTChineseTokenizer("gpt-cpm-cn-sentencepiece.model")
-    train_dataset=SimpleDataSet(args.data_dir,args.train_list,image_process(224),tokenizer)
-    test_dataset=SimpleDataSet(args.data_dir,args.test_list,image_process(224,False),tokenizer)
+    train_dataset=SimpleDataSet(args.data_dir,args.train_list,image_process(384),tokenizer)
+    test_dataset=SimpleDataSet(args.data_dir,args.test_list,image_process(384,False),tokenizer)
     sampler = DistributedBatchSampler(train_dataset, batch_size=32,shuffle=True,drop_last=False)
     train_loader = DataLoader(
         dataset=train_dataset,
@@ -86,36 +86,22 @@ def train(args):
         collate_fn = test_dataset.collate_fn,
         use_shared_memory=True)
         
-    #encoder = SwinTransformerEncoder(img_size=224,embed_dim=96,depths=[2, 2, 18, 2],num_heads=[3, 6, 12, 24],window_size=7,drop_path_rate=0.1)
-    encoder= CSwinTransformerEncoder(
-        image_size=224,
-        embed_dim=96,
-        depths=[2, 4, 32, 2],
-        splits=[1, 2, 7, 7],
-        num_heads=[4, 8, 16, 32],
-        droppath=0.5,
-        )
-    encoder.load_dict(paddle.load("CSWinTransformer_base_224_pretrained.pdparams"))
+    encoder = SwinTransformerEncoder(img_size=384,embed_dim=128,depths=[2, 2, 18, 2],num_heads=[4, 8, 16, 32],window_size=12,drop_path_rate=0.5,ape=True)
+    # encoder= CSwinTransformerEncoder(
+        # image_size=224,
+        # embed_dim=96,
+        # depths=[2, 4, 32, 2],
+        # splits=[1, 2, 7, 7],
+        # num_heads=[4, 8, 16, 32],
+        # droppath=0.5,
+        # )
+    encoder.load_dict(paddle.load("SwinTransformer_base_patch4_window12_384_22kto1k_pretrained.pdparams"))
+    #https://paddle-imagenet-models-name.bj.bcebos.com/dygraph/SwinTransformer_base_patch4_window12_384_22kto1k_pretrained.pdparams
     #https://paddle-imagenet-models-name.bj.bcebos.com/dygraph/CSWinTransformer_base_224_pretrained.pdparams
-    decoder = TransformerDecoder(d_model=768,n_head=12,dim_feedforward=768*4,num_layers=6,dropout=0.3)
+    decoder = TransformerDecoder(d_model=1024,n_head=16,dim_feedforward=1024*4,num_layers=6,dropout=0.5)
     word_emb = WordEmbedding(vocab_size=tokenizer.vocab_size,emb_dim=decoder.d_model,pad_id=train_dataset.bos_token_id)
     pos_emb = PositionalEmbedding(decoder.d_model,max_length=64,learned=True)
     project_out = nn.Linear(decoder.d_model, word_emb.vocab_size)
-    
-    def load_pretrained_gpt(path):
-        pretrained_model=paddle.load(path)
-        word_emb.load_dict({'word_embeddings.weight':pretrained_model['embeddings.word_embeddings.weight']})
-        pos_emb.load_dict({'position_embeddings.weight':pretrained_model['embeddings.position_embeddings.weight']})
-        state_dict={}
-        un_matched = []
-        for k in decoder.state_dict().keys():
-            if "decoder."+k in pretrained_model:
-                state_dict[k] = pretrained_model["decoder."+k]
-            else:
-                un_matched.append(k)
-        if len(un_matched)>0:
-            print("unmatched keys:%s" % str(un_matched))
-        decoder.load_dict(state_dict)
         
     def load_pretrained_ernie(param_path,vocab_path,token):
         p= paddle.load(param_path)
@@ -142,7 +128,6 @@ def train(args):
         if len(un_matched)>0:
             print("unmatched keys:%s" % str(un_matched))
     try:
-        #load_pretrained_gpt(args.decoder_pretrained)
         load_pretrained_ernie(args.decoder_pretrained,"ernie_vocab.txt",tokenizer)
     except:
         print("pretrained decoder isn't loaded")
@@ -163,7 +148,7 @@ def train(args):
     
     epochs=50
     batch_id=0
-    # scheduler = paddle.optimizer.lr.NoamDecay(d_model=decoder.d_model, warmup_steps=500, verbose=False)
+    # scheduler = InverseSqrt(learning_rate=2e-5,warmup_init_lr=1e-8, warmup_steps=5000, last_epoch = batch_id-1,verbose=False)
     # opt = paddle.optimizer.Adam(parameters=model.parameters(),learning_rate=scheduler,weight_decay= 0.0001)
     scheduler = LinearDecayWithWarmup(2e-5, epochs*len(train_loader),5000,last_epoch = batch_id-1)
 
