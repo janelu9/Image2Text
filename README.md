@@ -5,8 +5,9 @@ An image to text model base on transformer which can also be used on OCR task.
 
 ## 环境说明
 
-* 本项目依赖于 PaddlePaddle 2.3.2 版本
+* 本项目依赖于 PaddlePaddle 2.3.2 GPU版本
 * 如果使用NVIDIA FasterTransformer则需安装如下依赖：
+
 	CMake >= 3.10
 	
 	CUDA 10.1 或以上版本 （需要 PaddlePaddle 框架一致）
@@ -17,9 +18,9 @@ An image to text model base on transformer which can also be used on OCR task.
 	
 	python依赖
 	
-	  ```shell
-	  pip install attrdict pyyaml paddlenlp
-	  ```
+	 ```
+	 pip install attrdict pyyaml paddlenlp
+	 ```
 * 对于图灵架构GPU(CUDA版本为10.1)也可以通过docker镜像来安装paddle运行环境：
 
 拉取cuda运行环境镜像（已经配置好对应的gcc和cmake等常用工具）
@@ -57,7 +58,7 @@ pip install paddlepaddle-gpu==2.3.2.post101 -f https://www.paddlepaddle.org.cn/w
  
  *注：FasterTransformer会在**FasterTransformer**第一次被调用时自动编译。*
  
- ## 模型训练调优、评估和保存
+ ## 模型训练调优、评估、保存和推理部署
  1. 在`train.py`中配置好数据目录、训练集标签、测试集标签和预训练模型位置等参数。
  2. 训练模型：
 
@@ -73,10 +74,10 @@ python -m paddle.distributed.launch --gpus '0,1' train.py
 ```shell
 export CUDA_VISIBLE_DEVICES=0,1 && python -m paddle.distributed.launch train.py
 ```	
-*注：在部署推理服务时可以通过paddle.jit将模型转换为静态图，然后使用[paddle inference](https://paddle-inference.readthedocs.io/en/latest/index.html)加载以提升推理效率。*
+ 3. 在部署推理服务时可以通过paddle.jit将模型转换为静态图，然后使用[paddle inference](https://paddle-inference.readthedocs.io/en/latest/index.html)加载以提升推理效率。
 
 ```shell
 paddle.jit.save(layer=infer,path="inference",input_spec=[paddle.static.InputSpec(shape=[None,3,384,384],dtype='float32')])
 ```
 
-*该模型在处理不规则排列文字的OCR任务时简单有效，准确率在样本呈正态分布的测试集上（比较客观的抽样样本集上）通常可以达到90%以上*
+*注：该模型在处理不规则排列文字的OCR任务时简单有效，准确率在样本呈正态分布的测试集上（比较客观的抽样样本集上）通常可以达到90%以上*
