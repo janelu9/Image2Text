@@ -48,21 +48,26 @@ pip install paddlepaddle-gpu==2.3.2.post101 -f https://www.paddlepaddle.org.cn/w
  ## 模型说明
  
 * 使用了SwinTransformer、CSwinTransformer等作为图像部分的编码器；
+
 * 使用了KLDivLoss和CTCLoss相结合的损失函数（可以仅使用Attention解码，也可以使用CTC前缀束搜索加Attention重排序的方式解码）；
+
 * 使用ERNIE-3.0等基于TansformerEncoder/Decoder的中文预训练模型作为TrOCR文本部分的解码器以适用于中文OCR识别任务；
+
 * 可以改用较小的字典（如`ocr_keys_v1.txt`，包含6623个常见字符），脚本在加载预训练Decoder模型时会重构`wordembedding`以适应新的字典；
+
 * 集成了 NVIDIA FasterTransformer 用于预测加速，以解决当模型解码器的维度、束搜索空间、层数，较高、大、深时可能出现的推断效率问题；
+
 * 增加了一个自定义的[Beam Search方法](https://github.com/janelu9/TrOCR/blob/d3d3d7be156157ff802980a636a48aa29e4fc403/image2text.py#L757)，通常情况下更快更准。
  
 `image2text.py`中包含了用于训练的Image2Text模型和用于快速推断的FasterTransformer, 模型基于paddlepaddle开发. 这时你可以从[paddlenlp模型库](https://paddlenlp.readthedocs.io/zh/latest/model_zoo/#id2)中加载各种基于中文数据集的预训练模型.
 
-`image_aug.py`中包含了多种数据增强策略，可以有效增加模型泛化能力。
+`image_aug.py`中包含了多种数据增强策略，可以有效增加模型泛化能力。用户也可以自行添加基于pillow或opencv的图像增强策略，注意好img和ndarray间的格式转换即可。
  
  *注：FasterTransformer会在**FasterTransformer**第一次被调用时自动编译。*
  
  ## 模型训练调优、评估、保存和推理部署
  1. 在`train.py`中配置好数据目录、训练集标签、测试集标签和预训练模型位置等参数。
- 2. 训练模型：
+ 2. 训练模型和保存：
 
 单机多卡启动，默认使用当前可见的所有卡
 ```shell
@@ -76,6 +81,8 @@ python -m paddle.distributed.launch --gpus '0,1' train.py
 ```shell
 export CUDA_VISIBLE_DEVICES=0,1 && python -m paddle.distributed.launch train.py
 ```	
+模型训练过程会自动保存验证集效果最好的参数于文件`best_model.pdparams`中。
+
  3. 在部署推理服务时可以通过paddle.jit将模型转换为静态图，然后使用[paddle inference](https://paddle-inference.readthedocs.io/en/latest/index.html)加载以提升推理效率。
 
 ```shell
