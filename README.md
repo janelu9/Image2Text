@@ -7,17 +7,15 @@ An image to text model base on transformer which can also be used on OCR task.
 
 * 本项目依赖于 PaddlePaddle 2.3.2 版本
 * 如果使用NVIDIA FasterTransformer则需安装如下依赖：
-	* CMake >= 3.10
+	CMake >= 3.10
 	
-	* CUDA 10.1 或以上版本 （需要 PaddlePaddle 框架一致）
+	CUDA 10.1 或以上版本 （需要 PaddlePaddle 框架一致）
 	
-	* gcc 版本需要与编译 PaddlePaddle 版本一致，比如使用 gcc8.2
+	gcc 版本需要与编译 PaddlePaddle 版本一致，比如使用 gcc8.2
 	
-	* 推荐使用 Python3
+	推荐使用 Python3
 	
-	* [FasterTransformer](https://github.com/NVIDIA/FasterTransformer/tree/v3.1#setup) 使用必要的环境
-	
-	* 环境依赖
+	python依赖
 	
 	  ```shell
 	  pip install attrdict pyyaml paddlenlp
@@ -75,10 +73,10 @@ python -m paddle.distributed.launch --gpus '0,1' train.py
 ```shell
 export CUDA_VISIBLE_DEVICES=0,1 && python -m paddle.distributed.launch train.py
 ```	
-*注：在部署推理服务时可以通过:*
+*注：在部署推理服务时可以通过paddle.jit将模型转换为静态图，然后使用[paddle inference](https://paddle-inference.readthedocs.io/en/latest/index.html)加载以提升推理效率。*
 
-*`paddle.jit.save(layer=infer,path="inference",input_spec=[paddle.static.InputSpec(shape=[None,3,384,384],dtype='float32')])`*
+```shell
+paddle.jit.save(layer=infer,path="inference",input_spec=[paddle.static.InputSpec(shape=[None,3,384,384],dtype='float32')])
+```
 
-*将模型转换为静态图，然后使用[paddle inference](https://paddle-inference.readthedocs.io/en/latest/index.html)加载以提升推理效率。*
-
-*该模型对不规则排列文字的识别简单有效
+*该模型在处理不规则排列文字的OCR任务时简单有效，准确率在样本呈正态分布的测试集上（比较客观的抽样样本集上）通常可以达到90%以上*
