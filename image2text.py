@@ -656,6 +656,7 @@ class InferTransformerModel(nn.Layer):
                 topk_ids, topk_scores = force_decoding_v2(topk_ids, topk_scores,i)
 
             topk_log_probs = topk_scores * length_penalty
+
             topk_beam_index = topk_ids // self.vocab_size
             topk_ids = topk_ids % self.vocab_size
 
@@ -846,9 +847,9 @@ class InferTransformerModel(nn.Layer):
         def loop(i,curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags,ended_log_probs_pre,ended_flags_pre):
             ended,beam_index,curr_word,curr_log_probs,states =step(i,curr_word,curr_log_probs,states)
             ended_seqs = paddle.concat([ended_seqs,pad],-1)
+            ended_log_probs_pre,ended_flags_pre=ended_log_probs.clone(),ended_flags.clone()
             if paddle.any(ended):
                 ended=paddle.cast(ended,"float32")
-                ended_log_probs_pre,ended_flags_pre=ended_log_probs.clone(),ended_flags.clone()
                 ended_log_probs,ended_seqs,ended_flags=in_the_end(
                     ended,ended_log_probs_pre,ended_seqs,ended_flags_pre,beam_index,curr_word,curr_log_probs,curr_seqs)
                 curr_word,curr_seqs,curr_log_probs,states = go_on(ended,curr_word,beam_index,curr_seqs,curr_log_probs,states)
@@ -921,3 +922,5 @@ class InferTransformerModel(nn.Layer):
     # out1=infer(img)
      
 # paddle.jit.save(paddle.jit.to_static(infer,input_spec=[paddle.static.InputSpec(name='img',shape=[None,3,224,224], dtype="float32")]),"infer")
+
+
