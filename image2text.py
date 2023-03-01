@@ -355,7 +355,8 @@ class Image2Text(nn.Layer):
         self.dropout= nn.Dropout(emb_dropout)
         self.project_out = project_out
         self.ctc_lo = nn.Linear(txt_decoder.d_model,word_emb.vocab_size+1)
-
+        self.dropout1 = nn.Dropout(emb_dropout)
+        
     def forward(self, img, tgt,src_mask=0,tgt_mask=0, memory_mask=0):         
         memory = self.encoder(img)            
         dec_input = self.dropout(self.word_embedding.layer_norm(self.word_embedding(tgt) + \
@@ -363,7 +364,7 @@ class Image2Text(nn.Layer):
         dec_output = self.decoder(dec_input,memory,
                                   tgt_mask=self.decoder._mask(tgt.shape[1]) if tgt_mask else 0)
         predict = self.project_out(dec_output)
-        return predict,self.dropout1(self.ctc_lo(dec_output))
+        return predict,self.dropout1(self.ctc_lo(memory))
         
 class FasterTransformer(nn.Layer):
     def __init__(self,model,
@@ -785,7 +786,7 @@ class InferTransformerModel(nn.Layer):
         batch_coordinate = paddle.reshape( paddle.tile(batch_pos,(1,beam_size)),[-1])
         batch_coordinate_ = paddle.reshape( paddle.tile(batch_pos,(1,beam_size+1)),[-1])
         eos = paddle.full(shape=[batch_size,beam_size+1],dtype="int64",fill_value=self.eos_id)
-        pad = paddle.full(shape=[batch_size,beam_size,1],dtype="int64",fill_value=self.eos_id)
+        # pad = paddle.full(shape=[batch_size,beam_size,1],dtype="int64",fill_value=self.eos_id)
         ended_log_probs =paddle.tile(paddle.assign(np.array([[-inf] * beam_size],"float32")), [batch_size, 1])
         ended_flags = paddle.zeros_like(ended_log_probs)
         ended_seqs =paddle.tile(paddle.assign(np.array([[[self.eos_id]]],"int64")),[batch_size, beam_size, 1])        
@@ -840,18 +841,18 @@ class InferTransformerModel(nn.Layer):
         
         def stop(i,curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags,ended_log_probs_pre,ended_flags_pre):
             max_curr_log_probs = paddle.max(curr_log_probs, 1)
-            min_ended_log_probs_pre = paddle.min(ended_log_probs_pre*ended_flags_pre,1)
-            min_ended_log_probs_pre+= (1. - paddle.max(ended_flags_pre, 1)) * -inf         
-            return paddle.greater_than(i < max_len,paddle.all(paddle.greater_than(min_ended_log_probs_pre,max_curr_log_probs)))
+            min_ended_log_probs = paddle.min(ended_log_probs_pre*ended_flags_pre,1)
+            min_ended_log_probs += (1. - paddle.max(ended_flags_pre, 1)) * -inf         
+            return paddle.greater_than(i < max_len,paddle.all(paddle.greater_than(min_ended_log_probs,max_curr_log_probs)))
 
         def loop(i,curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags,ended_log_probs_pre,ended_flags_pre):
             ended,beam_index,curr_word,curr_log_probs,states =step(i,curr_word,curr_log_probs,states)
-            ended_seqs = paddle.concat([ended_seqs,pad],-1)
+            ended_seqs = paddle.concat([ended_seqs,paddle.full(shape=[batch_size,beam_size,1],dtype="int64",fill_value=self.eos_id)],-1)
             ended_log_probs_pre,ended_flags_pre=ended_log_probs.clone(),ended_flags.clone()
             if paddle.any(ended):
                 ended=paddle.cast(ended,"float32")
                 ended_log_probs,ended_seqs,ended_flags=in_the_end(
-                    ended,ended_log_probs_pre,ended_seqs,ended_flags_pre,beam_index,curr_word,curr_log_probs,curr_seqs)
+                    ended,ended_log_probs,ended_seqs,ended_flags,beam_index,curr_word,curr_log_probs,curr_seqs)
                 curr_word,curr_seqs,curr_log_probs,states = go_on(ended,curr_word,beam_index,curr_seqs,curr_log_probs,states)
             else:
                 curr_log_probs = curr_log_probs[:,:-1]
@@ -879,7 +880,7 @@ class InferTransformerModel(nn.Layer):
         curr_log_probs = log_probs + paddle.reshape(curr_log_probs,[-1,1,1])
         curr_log_probs = paddle.reshape(curr_log_probs, [batch_size, -1])
         curr_log_probs, curr_word = paddle.topk(curr_log_probs, k=beam_size)
-        ended = paddle.equal(curr_word, pad.squeeze(-1))
+        ended = paddle.equal(curr_word, paddle.full(shape=[batch_size,beam_size],dtype="int64",fill_value=self.eos_id))
         curr_word = paddle.reshape(curr_word ,[-1,1])
         curr_seqs = curr_word.clone()
 
