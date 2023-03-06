@@ -848,9 +848,9 @@ class InferTransformerModel(nn.Layer):
         def loop(i,curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags,ended_log_probs_pre,ended_flags_pre):
             ended,beam_index,curr_word,curr_log_probs,states =step(i,curr_word,curr_log_probs,states)
             ended_seqs = paddle.concat([ended_seqs,paddle.full(shape=[batch_size,beam_size,1],dtype="int64",fill_value=self.eos_id)],-1)
-            ended_log_probs_pre,ended_flags_pre=ended_log_probs.clone(),ended_flags.clone()
             if paddle.any(ended):
                 ended=paddle.cast(ended,"float32")
+                ended_log_probs_pre,ended_flags_pre=ended_log_probs.clone(),ended_flags.clone()
                 ended_log_probs,ended_seqs,ended_flags=in_the_end(
                     ended,ended_log_probs,ended_seqs,ended_flags,beam_index,curr_word,curr_log_probs,curr_seqs)
                 curr_word,curr_seqs,curr_log_probs,states = go_on(ended,curr_word,beam_index,curr_seqs,curr_log_probs,states)
