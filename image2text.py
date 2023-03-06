@@ -785,7 +785,7 @@ class InferTransformerModel(nn.Layer):
         batch_pos = batch_pos.unsqueeze(-1)
         batch_coordinate = paddle.reshape( paddle.tile(batch_pos,(1,beam_size)),[-1])
         batch_coordinate_ = paddle.reshape( paddle.tile(batch_pos,(1,beam_size+1)),[-1])
-        eos = paddle.full(shape=[batch_size,beam_size+1],dtype="int64",fill_value=self.eos_id)
+        # eos = paddle.full(shape=[batch_size,beam_size+1],dtype="int64",fill_value=self.eos_id)
         # pad = paddle.full(shape=[batch_size,beam_size,1],dtype="int64",fill_value=self.eos_id)
         ended_log_probs =paddle.tile(paddle.assign(np.array([[-inf] * beam_size],"float32")), [batch_size, 1])
         ended_flags = paddle.zeros_like(ended_log_probs)
@@ -811,7 +811,7 @@ class InferTransformerModel(nn.Layer):
             curr_log_probs = paddle.reshape(curr_log_probs, [batch_size, -1])
             curr_log_probs, topk_ids = paddle.topk(curr_log_probs, k=beam_size+1)
             curr_word =   topk_ids % self.vocab_size
-            ended = paddle.equal(curr_word, eos)
+            ended = paddle.equal(curr_word, paddle.full(shape=[batch_size,beam_size+1],dtype="int64",fill_value=self.eos_id))
             beam_index = topk_ids // self.vocab_size
             return ended,beam_index,curr_word,curr_log_probs,states
 
@@ -864,7 +864,7 @@ class InferTransformerModel(nn.Layer):
         
         def final(ended_log_probs,ended_seqs,curr_log_probs,curr_seqs):
             log_probs =paddle.concat([ended_log_probs, curr_log_probs],1)
-            seqs = paddle.concat([ended_seqs, paddle.reshape(curr_seqs,ended_seqs.shape)], 1)
+            seqs = paddle.concat([ended_seqs, paddle.reshape(curr_seqs,[batch_size,beam_size,-1])], 1)
             final_probs, topk_ids = paddle.topk(log_probs, k=beam_size)
             topk_coordinates = gen_coordinates2D(topk_ids, batch_size,beam_size)
             final_seqs = paddle.gather_nd(seqs, topk_coordinates)
