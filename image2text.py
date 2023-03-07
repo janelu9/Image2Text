@@ -893,7 +893,7 @@ class InferTransformerModel(nn.Layer):
             curr_log_probs+=ended*-inf
             
         i=paddle.ones([1],"int64")
-        while i<max_len or stop(curr_log_probs,ended_log_probs_pre,ended_flags_pre): 
+        while i<max_len and not stop(curr_log_probs,ended_log_probs_pre,ended_flags_pre): 
             ended,beam_index,curr_word,curr_log_probs,states,ended_seqs =step(i,curr_word,curr_log_probs,states,ended_seqs)
             if paddle.any(ended):
                 ended=paddle.cast(ended,"float32")
@@ -942,3 +942,4 @@ class InferTransformerModel(nn.Layer):
     # out1=infer(img)
      
 # paddle.jit.save(paddle.jit.to_static(infer,input_spec=[paddle.static.InputSpec(name='img',shape=[None,3,224,224], dtype="float32")]),"infer")
+
