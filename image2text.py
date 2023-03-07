@@ -798,7 +798,7 @@ class InferTransformerModel(nn.Layer):
             batch_pos = batch_pos.unsqueeze(-1)
             return paddle.stack([paddle.tile(batch_pos,(1,beam_size)),topk_ids],2)
         
-        def step(i,curr_word,curr_log_probs,states):
+        def step(i,curr_word,curr_log_probs,states,ended_seqs):
             trg_pos = paddle.full(shape=paddle.shape(curr_word),dtype=curr_word.dtype,fill_value=i)
             trg_emb = self.word_embedding(curr_word)
             trg_pos_emb = self.pos_embedding(trg_pos)
@@ -813,7 +813,8 @@ class InferTransformerModel(nn.Layer):
             curr_word =   topk_ids % self.vocab_size
             ended = paddle.equal(curr_word, paddle.full(shape=[batch_size,beam_size+1],dtype="int64",fill_value=self.eos_id))
             beam_index = topk_ids // self.vocab_size
-            return ended,beam_index,curr_word,curr_log_probs,states
+            ended_seqs = paddle.concat([ended_seqs,paddle.full(shape=[batch_size,beam_size,1],dtype="int64",fill_value=self.eos_id)],-1)
+            return ended,beam_index,curr_word,curr_log_probs,states,ended_seqs
 
         def in_the_end(ended,ended_log_probs,ended_seqs,ended_flags,beam_index,curr_word,curr_log_probs,curr_seqs):
             coordinates = batch_coordinate_ + paddle.reshape(beam_index ,[-1])
