@@ -839,28 +839,30 @@ class InferTransformerModel(nn.Layer):
             curr_seqs = paddle.concat([paddle.gather(curr_seqs,coordinates),curr_word],-1)
             return curr_word,curr_seqs,curr_log_probs,states
         
-        def stop(i,curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags,ended_log_probs_pre,ended_flags_pre):
+        # def stop(i,curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags,ended_log_probs_pre,ended_flags_pre):
+        def stop(curr_log_probs,ended_log_probs_pre,ended_flags_pre):
             max_curr_log_probs = paddle.max(curr_log_probs, 1)
             min_ended_log_probs = paddle.min(ended_log_probs_pre*ended_flags_pre,1)
-            min_ended_log_probs += (1. - paddle.max(ended_flags_pre, 1)) * -inf         
-            return paddle.greater_than(i < max_len,paddle.all(paddle.greater_than(min_ended_log_probs,max_curr_log_probs)))
+            min_ended_log_probs += (1. - paddle.max(ended_flags_pre, 1)) * -inf
+            return paddle.all(paddle.greater_than(min_ended_log_probs,max_curr_log_probs))
+            # return paddle.greater_than(i < max_len,paddle.all(paddle.greater_than(min_ended_log_probs,max_curr_log_probs)))
 
-        def loop(i,curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags,ended_log_probs_pre,ended_flags_pre):
-            ended,beam_index,curr_word,curr_log_probs,states =step(i,curr_word,curr_log_probs,states)
-            ended_seqs = paddle.concat([ended_seqs,paddle.full(shape=[batch_size,beam_size,1],dtype="int64",fill_value=self.eos_id)],-1)
-            if paddle.any(ended):
-                ended=paddle.cast(ended,"float32")
-                ended_log_probs_pre,ended_flags_pre=ended_log_probs.clone(),ended_flags.clone()
-                ended_log_probs,ended_seqs,ended_flags=in_the_end(
-                    ended,ended_log_probs,ended_seqs,ended_flags,beam_index,curr_word,curr_log_probs,curr_seqs)
-                curr_word,curr_seqs,curr_log_probs,states = go_on(ended,curr_word,beam_index,curr_seqs,curr_log_probs,states)
-            else:
-                curr_log_probs = curr_log_probs[:,:-1]
-                curr_word = paddle.reshape(curr_word[:,:-1] ,[-1,1])
-                coordinates = batch_coordinate + paddle.reshape(beam_index[:,:-1] ,[-1])
-                states = [([paddle.gather(cache[0][0],coordinates),paddle.gather(cache[0][1],coordinates)],cache[1]) for cache in states]
-                curr_seqs = paddle.concat([paddle.gather(curr_seqs,coordinates),curr_word],-1)                  
-            return i+1,curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags,ended_log_probs_pre,ended_flags_pre
+        # def loop(i,curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags,ended_log_probs_pre,ended_flags_pre):
+            # ended,beam_index,curr_word,curr_log_probs,states =step(i,curr_word,curr_log_probs,states)
+            # ended_seqs = paddle.concat([ended_seqs,paddle.full(shape=[batch_size,beam_size,1],dtype="int64",fill_value=self.eos_id)],-1)
+            # if paddle.any(ended):
+                # ended=paddle.cast(ended,"float32")
+                # ended_log_probs_pre,ended_flags_pre=ended_log_probs.clone(),ended_flags.clone()
+                # ended_log_probs,ended_seqs,ended_flags=in_the_end(
+                    # ended,ended_log_probs,ended_seqs,ended_flags,beam_index,curr_word,curr_log_probs,curr_seqs)
+                # curr_word,curr_seqs,curr_log_probs,states = go_on(ended,curr_word,beam_index,curr_seqs,curr_log_probs,states)
+            # else:
+                # curr_log_probs = curr_log_probs[:,:-1]
+                # curr_word = paddle.reshape(curr_word[:,:-1] ,[-1,1])
+                # coordinates = batch_coordinate + paddle.reshape(beam_index[:,:-1] ,[-1])
+                # states = [([paddle.gather(cache[0][0],coordinates),paddle.gather(cache[0][1],coordinates)],cache[1]) for cache in states]
+                # curr_seqs = paddle.concat([paddle.gather(curr_seqs,coordinates),curr_word],-1)                  
+            # return i+1,curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags,ended_log_probs_pre,ended_flags_pre
         
         def final(ended_log_probs,ended_seqs,curr_log_probs,curr_seqs):
             log_probs =paddle.concat([ended_log_probs, curr_log_probs],1)
@@ -890,10 +892,27 @@ class InferTransformerModel(nn.Layer):
             ended_flags=ended.clone()
             curr_log_probs+=ended*-inf
             
-        _,curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags,ended_log_probs_pre,ended_flags_pre= while_loop(
-            stop, loop,
-            [paddle.ones([1],"int64"),curr_word,curr_seqs,curr_log_probs,states,
-             ended_log_probs,ended_seqs,ended_flags,ended_log_probs_pre,ended_flags_pre])
+        i=paddle.ones([1],"int64")
+        while i<max_len or stop(curr_log_probs,ended_log_probs_pre,ended_flags_pre): 
+            ended,beam_index,curr_word,curr_log_probs,states,ended_seqs =step(i,curr_word,curr_log_probs,states,ended_seqs)
+            if paddle.any(ended):
+                ended=paddle.cast(ended,"float32")
+                ended_log_probs_pre,ended_flags_pre=ended_log_probs.clone(),ended_flags.clone()
+                ended_log_probs,ended_seqs,ended_flags=in_the_end(
+                    ended,ended_log_probs,ended_seqs,ended_flags,beam_index,curr_word,curr_log_probs,curr_seqs)
+                curr_word,curr_seqs,curr_log_probs,states = go_on(ended,curr_word,beam_index,curr_seqs,curr_log_probs,states)
+            else:
+                curr_log_probs = curr_log_probs[:,:-1]
+                curr_word = paddle.reshape(curr_word[:,:-1] ,[-1,1])
+                coordinates = batch_coordinate + paddle.reshape(beam_index[:,:-1] ,[-1])
+                states = [([paddle.gather(cache[0][0],coordinates),paddle.gather(cache[0][1],coordinates)],cache[1]) for cache in states]
+                curr_seqs = paddle.concat([paddle.gather(curr_seqs,coordinates),curr_word],-1)  
+            i+=1
+            
+        # _,curr_word,curr_seqs,curr_log_probs,states,ended_log_probs,ended_seqs,ended_flags,ended_log_probs_pre,ended_flags_pre= while_loop(
+            # stop, loop,
+            # [paddle.ones([1],"int64"),curr_word,curr_seqs,curr_log_probs,states,
+             # ended_log_probs,ended_seqs,ended_flags,ended_log_probs_pre,ended_flags_pre])
         
         final_seqs,final_probs =final(ended_log_probs,ended_seqs,curr_log_probs,curr_seqs)
         return final_seqs.transpose([0, 2, 1]),final_probs
@@ -923,5 +942,3 @@ class InferTransformerModel(nn.Layer):
     # out1=infer(img)
      
 # paddle.jit.save(paddle.jit.to_static(infer,input_spec=[paddle.static.InputSpec(name='img',shape=[None,3,224,224], dtype="float32")]),"infer")
-
-
