@@ -1,5 +1,5 @@
-# Image2Text Model
-An image to text model based on transformer which can also be used on OCR task.
+# Image2Text
+An image to text model based on transformer used on OCR task.
 
 在这里集成了 NVIDIA [FasterTransformer](https://github.com/NVIDIA/FasterTransformer/tree/v3.1) 用于预测加速。同时集成了 FasterTransformer float32 以及 float16 预测。以下是使用 FasterTransformer 的说明。
 
@@ -96,8 +96,8 @@ If you find it useful or use my TrOCR code  in your research, please cite it in 
 ```bibtex
 @misc{EasyLLM,
   author       = {Jian Lu},
-  title        = {TrOCR: An image to text model based on transformer which can also be used on OCR task},
-  year         = {2023},
+  title        = {TrOCR: An image to text model based on transformer used on OCR task},
+  year         = {2022},
   publisher    = {GitHub},
   journal      = {GitHub repository},
   howpublished = {\url{https://gitee.com/janelu9/TrOCR.git}},
