@@ -94,9 +94,9 @@ paddle.jit.save(layer=infer,path="inference",input_spec=[paddle.static.InputSpec
 If you find it useful or use my TrOCR code  in your research, please cite it in your publications.
 
 ```bibtex
-@misc{EasyLLM,
+@misc{Image2Text,
   author       = {Jian Lu},
-  title        = {TrOCR: An image to text model based on transformer used on OCR task},
+  title        = {Image2Text: An image to text model based on transformer used on OCR task},
   year         = {2022},
   publisher    = {GitHub},
   journal      = {GitHub repository},
